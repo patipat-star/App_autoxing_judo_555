@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+
+    <!-- เมนูปุ่มควบคุมหลัก -->
+    <LinearLayout
+        android:id="@+id/mainMenuContainer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="8dp">
+
+        <!-- ปุ่มหลัก: ไอคอนหุ่นยนต์ -->
+        <ImageButton
+            android:id="@+id/btnMain"
+            android:layout_width="160dp"
+            android:layout_height="160dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="Robot Icon"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_robot_logo" />
+
+        <ScrollView
+            android:id="@+id/controlButtonsGroup"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:fillViewport="true"
+            android:overScrollMode="never"
+            android:scrollbars="none"
+            android:visibility="visible">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
+
+                <!-- ปุ่ม 1 (เปียโน) -->
+                <ImageButton
+                    android:id="@+id/btn1"
+                    android:layout_width="60dp"
+                    android:layout_height="60dp"
+                    android:layout_marginBottom="10dp"
+                    android:background="@drawable/circle_button_bg"
+                    app:backgroundTint="@null"
+                    android:contentDescription="Person Icon"
+                    android:padding="12dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_person"
+                    app:tint="#000000" />
+
+                <!-- ปุ่ม 2 -->
+                <ImageButton
+                    android:id="@+id/btn2"
+                    android:layout_width="60dp"
+                    android:layout_height="60dp"
+                    android:layout_marginBottom="10dp"
+                    android:background="@drawable/circle_button_bg"
+                    app:backgroundTint="@null"
+                    android:contentDescription="Gamepad Icon"
+                    android:padding="12dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_gamepad"
+                    app:tint="#000000" />
+
+                <!-- ปุ่ม 3 -->
+                <ImageButton
+                    android:id="@+id/btn3"
+                    android:layout_width="60dp"
+                    android:layout_height="60dp"
+                    android:layout_marginBottom="10dp"
+                    android:background="@drawable/circle_button_bg"
+                    app:backgroundTint="@null"
+                    android:contentDescription="Zoom Join"
+                    android:padding="12dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_zoom"
+                    app:tint="#000000" />
+
+                <!-- ปุ่ม 4 (กล้องสตรีม) -->
+                <Button
+                    android:id="@+id/btn4"
+                    android:layout_width="60dp"
+                    android:layout_height="60dp"
+                    android:layout_marginBottom="10dp"
+                    android:background="@drawable/circle_button_bg"
+                    app:backgroundTint="@null"
+                    android:text="📷"
+                    android:textColor="#000000"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <!-- ปุ่ม 5 (กลองชุด) -->
+                <ImageButton
+                    android:id="@+id/btn5"
+                    android:layout_width="60dp"
+                    android:layout_height="60dp"
+                    android:layout_marginBottom="6dp"
+                    android:background="@drawable/circle_button_bg"
+                    app:backgroundTint="@null"
+                    android:contentDescription="Drum Kit Icon"
+                    android:padding="12dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/drum" />
+
+            </LinearLayout>
+        </ScrollView>
+
+    </LinearLayout>
+
+    <!-- กรอบแสดงผลไลฟ์สด/เกม 3D/เครื่องดนตรี -->
+    <FrameLayout
+        android:id="@+id/streamContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <WebView
+            android:id="@+id/streamWebView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scrollbars="none" />
+
+        <!-- แสดงผลจำนวนนิ้วมือมุมซ้ายบน -->
+        <TextView
+            android:id="@+id/tvFingerCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:layout_margin="16dp"
+            android:background="@null"
+            android:shadowColor="#000000"
+            android:shadowDx="2"
+            android:shadowDy="2"
+            android:shadowRadius="4"
+            android:text="0"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+        <!-- ปุ่มปิดสตรีม: ใช้ circle_button_bg ย้อมเป็นสีแดงผ่าน app:backgroundTint -->
+        <Button
+            android:id="@+id/btnCloseStream"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_gravity="top|end"
+            android:layout_margin="16dp"
+            android:background="@drawable/circle_button_bg"
+            app:backgroundTint="#F44336"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:includeFontPadding="false"
+            android:text="✕"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+    </FrameLayout>
+
+</FrameLayout>

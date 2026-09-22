@@ -1,0 +1,21 @@
+แก้ไขสำหรับ Android 11
+
+1) ปุ่ม X ของ Zoom
+- กด X เพียงครั้งเดียว
+- เรียก ZoomAccessibilityService เพื่อพยายามกด Leave / Leave Meeting แบบสั้น ๆ
+- ไม่รอ watchdog 5 วินาที
+- นำ MainActivity กลับขึ้น foreground โดยตรง
+- กลับไป FirstFragment (หน้า Home ของแผงควบคุม)
+- ปิดปุ่ม X
+- ขอให้ระบบ kill background process ของ Zoom เป็น best-effort หลังกลับหน้า Home
+
+2) กล้อง Raspberry Pi 5
+- ก่อนเปิด /video_feed จะ POST /api/trigger_button4 ไปที่ Pi 5 ก่อน
+- เมื่อ Pi ตอบ HTTP success จึงโหลด MJPEG feed ผ่าน WebView
+- ช่วยแก้กรณี WebView เริ่มโหลด feed ก่อนที่ Pi จะสลับเข้าโหมดกล้อง
+- ปุ่ม Camera แยกสถานะจาก Piano/Game/Drum ด้วย ContentType ไม่ใช้แค่ WebView.VISIBLE
+
+3) Zoom และกล้อง Pi
+- กล้องที่ต่อกับ Raspberry Pi เป็นกล้องเครือข่ายของ Pi ไม่ใช่กล้อง Android ของ Zoom โดยตรง
+- FloatingService สามารถแสดง feed จาก Pi ผ่าน /video_feed ได้
+- หากต้องการให้ Zoom ใช้กล้องที่ต่อกับ Raspberry Pi เป็น "Camera" ใน Zoom โดยตรง ต้องมีวิธี bridge/virtual camera หรืออุปกรณ์/เฟิร์มแวร์ที่ทำให้กล้องนั้นถูกมองเป็นกล้องของ Android ซึ่งอยู่นอกขอบเขตของ FloatingService.kt

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    ✅ แก้ไข: accessibilityEventTypes จาก "typeWindowStateChanged|typeWindowContentChanged"
+    เป็น "typeAllMask"
+
+    เหตุผล: ระบบใหม่ใน ZoomAccessibilityService ใช้ event แค่เป็น "จุดชนวน"
+    ให้เริ่ม leaveWatchdog loop (ซึ่งทำงานต่อเนื่องเองไม่ง้อ event หลังจากนั้น)
+    แต่ "event แรก" ที่จะมาจุดชนวนยังต้องพึ่ง config นี้อยู่ดี
+
+    ถ้าจำกัดไว้แค่ typeWindowStateChanged|typeWindowContentChanged เพียง 2 ชนิด
+    มีโอกาสที่ Zoom จะเปลี่ยน UI ด้วย event ชนิดอื่น (เช่น
+    typeViewClicked, typeViewFocused, typeWindowsChanged ฯลฯ) ก่อน
+    ทำให้กว่า event ที่ระบบดักไว้จะมา อาจช้าลงหรือพลาดจังหวะแรกไปเลย
+    การเปิดรับทุกชนิด event (typeAllMask) ทำให้ watchdog เริ่มทำงานได้เร็ว
+    และแน่นอนที่สุดเท่าที่จะทำได้
+
+    notificationTimeout คงไว้ที่ 100ms (ค่าต่ำ = event มาถึงไว ไม่หน่วง)
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeAllMask"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="100" />

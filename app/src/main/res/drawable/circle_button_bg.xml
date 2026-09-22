@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#40FFFFFF"> <!-- เอฟเฟกต์ตอนกดเป็นสีขาวโปร่งแสง -->
+
+    <!-- กำหนด Mask เป็นทรงกลม เพื่อไม่ให้เอฟเฟกต์กดทะลุเป็นสี่เหลี่ยม -->
+    <item android:id="@android:id/mask">
+        <shape android:shape="oval">
+            <solid android:color="#FFFFFF" />
+        </shape>
+    </item>
+
+    <!-- รูปร่างพื้นหลังหลักทรงกลมสีขาว -->
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#FFFFFF" /> <!-- สีพื้นหลังขาว -->
+        </shape>
+    </item>
+</ripple>

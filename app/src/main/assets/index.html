@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>SUNROBOTICS&AI — City Runner</title>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        :root{
+            --deep: #05070d;
+            --panel: #0a1526;
+            --metal: #eef2f8;
+            --navy: #131c30;
+            --cyan: #37e6ff;
+            --blue: #2f6bff;
+            --amber: #ffb347;
+            --text: #eef3fb;
+            --muted: #8ea0c2;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: none;
+        }
+        html, body {
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            overscroll-behavior: none;
+            background: var(--deep);
+            color: var(--text);
+            font-family: 'Sarabun', sans-serif;
+            display: flex; justify-content: center; align-items: center;
+        }
+        #game-container {
+            position: relative; width: 100vw; height: 100vh;
+            background: #dfe7f2; overflow: hidden;
+            box-shadow: 0 0 60px rgba(55,230,255,0.18), inset 0 0 120px rgba(0,0,0,0.06);
+        }
+        #game-canvas-fallback {
+            position: absolute; inset: 0; display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+            background: var(--deep); color: var(--text); text-align: center; padding: 24px;
+            font-family: 'Chakra Petch', sans-serif; z-index: 50; gap: 10px;
+        }
+
+        /* ---------- HUD ---------- */
+        .ui-panel {
+            position: absolute; top: 0; left: 0; width: 100%;
+            padding: 18px 14px; display: flex; justify-content: space-between; gap: 8px;
+            pointer-events: none; z-index: 10;
+        }
+        .hud-card {
+            background: rgba(10, 16, 30, 0.55);
+            backdrop-filter: blur(8px);
+            padding: 7px 12px; border-radius: 4px;
+            font-family: 'Chakra Petch', sans-serif; font-weight: 600; font-size: 12px;
+            letter-spacing: 0.5px;
+            border: 1px solid rgba(55,230,255,0.35);
+            clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+            color: var(--text);
+        }
+        .hud-card small { display:block; font-size: 8px; color: var(--muted); font-weight: 500; letter-spacing: 1.5px; }
+        .score-box span { color: var(--cyan); }
+        .level-box span { color: var(--amber); }
+        .highscore-box span { color: #ff5c8a; }
+
+        /* ---------- On-Screen D-Pad Controls ---------- */
+        .touch-controls {
+            position: absolute; bottom: 20px; left: 0; width: 100%;
+            padding: 0 20px; display: flex; justify-content: space-between;
+            pointer-events: none; z-index: 15;
+        }
+        .control-group { display: flex; gap: 12px; pointer-events: auto; }
+        .v-btn {
+            width: 58px; height: 58px;
+            background: rgba(10, 21, 38, 0.65);
+            border: 1px solid rgba(55, 230, 255, 0.4);
+            border-radius: 12px; backdrop-filter: blur(4px);
+            color: var(--cyan); font-size: 22px; font-weight: bold;
+            display: flex; justify-content: center; align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            transition: background 0.1s, transform 0.1s;
+        }
+        .v-btn:active {
+            background: rgba(55, 230, 255, 0.3);
+            transform: scale(0.92);
+        }
+
+        /* ---------- Overlay ---------- */
+        #overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(120% 90% at 50% 20%, rgba(20,40,70,0.55) 0%, rgba(3,6,14,0.86) 65%, rgba(2,4,10,0.94) 100%);
+            backdrop-filter: blur(6px);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            text-align: center; padding: 26px 22px; z-index: 20; cursor: pointer;
+        }
+
+        .brand-frame {
+            position: relative; width: 100%; max-width: 380px;
+            padding: 22px 18px 26px;
+            border: 1px solid rgba(55,230,255,0.28);
+        }
+        .brand-frame::before, .brand-frame::after,
+        .corner-tl, .corner-br { content:""; position:absolute; width:16px; height:16px; }
+        .corner-tl { top:-1px; left:-1px; border-top:2px solid var(--cyan); border-left:2px solid var(--cyan); }
+        .corner-br { bottom:-1px; right:-1px; border-bottom:2px solid var(--cyan); border-right:2px solid var(--cyan); }
+
+        .eyebrow {
+            font-family: 'Chakra Petch', sans-serif; font-size: 11px; color: var(--muted);
+            letter-spacing: 3px; margin-bottom: 6px;
+        }
+        .main-title {
+            font-family: 'Chakra Petch', sans-serif; font-size: 30px; font-weight: 700;
+            letter-spacing: 1px; line-height: 1.05;
+            background: linear-gradient(120deg, var(--cyan), var(--blue));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 18px rgba(55,230,255,0.35));
+        }
+        .sub-title {
+            font-family: 'Chakra Petch', sans-serif; font-size: 13px; color: #ff5c8a;
+            font-weight: 600; letter-spacing: 4px; margin-top: 4px;
+        }
+
+        .divider {
+            width: 60px; height: 2px; margin: 16px auto;
+            background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+        }
+
+        .control-list { width: 100%; text-align: left; }
+        .control-row {
+            display: flex; align-items: center; gap: 12px;
+            padding: 10px 2px; border-bottom: 1px solid rgba(255,255,255,0.09);
+        }
+        .control-row:last-child { border-bottom: none; }
+        .control-glyph {
+            font-family: 'Chakra Petch', sans-serif; font-size: 15px; font-weight: 700;
+            color: var(--cyan); width: 34px; text-align: center; flex-shrink: 0;
+        }
+        .control-text b {
+            display: block; font-family: 'Chakra Petch', sans-serif; font-size: 13px;
+            font-weight: 600; color: var(--text);
+        }
+        .control-text span { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+
+        .tap-to-start-btn {
+            margin-top: 24px; padding: 14px 34px;
+            background: linear-gradient(120deg, var(--blue), var(--cyan));
+            font-family: 'Chakra Petch', sans-serif; font-size: 15px; font-weight: 700;
+            letter-spacing: 1px; color: #04121e;
+            clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+            box-shadow: 0 0 26px rgba(55,230,255,0.55);
+            animation: pulse 1.6s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(55,230,255,0.45); }
+            50% { transform: scale(1.04); box-shadow: 0 0 36px rgba(55,230,255,0.85); }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div class="ui-panel">
+        <div class="hud-card score-box"><small>SCORE</small><span id="scoreText">0</span></div>
+        <div class="hud-card level-box"><small>LEVEL</small><span id="levelText">1</span></div>
+        <div class="hud-card highscore-box"><small>BEST</small><span id="highScoreText">0</span></div>
+    </div>
+
+    <!-- Virtual On-Screen Controls -->
+    <div class="touch-controls">
+        <div class="control-group">
+            <div class="v-btn" id="btn-left">◀</div>
+            <div class="v-btn" id="btn-right">▶</div>
+        </div>
+        <div class="control-group">
+            <div class="v-btn" id="btn-duck">▼</div>
+            <div class="v-btn" id="btn-jump">▲</div>
+        </div>
+    </div>
+
+    <div id="overlay">
+        <div class="brand-frame">
+            <div class="corner-tl"></div><div class="corner-br"></div>
+            <div class="eyebrow">S U N R O B O T I C S</div>
+            <div class="main-title" id="mainTitleText">SUNROBOTICS&AI</div>
+            <div class="sub-title" id="subTitleText">CITY RUNNER</div>
+
+            <div class="divider"></div>
+
+            <div class="control-list">
+                <div class="control-row">
+                    <div class="control-glyph">⇆</div>
+                    <div class="control-text"><b>ปัดซ้าย-ขวา / ปุ่มกด</b><span>ย้ายเลนหลบสิ่งกีดขวาง</span></div>
+                </div>
+                <div class="control-row">
+                    <div class="control-glyph">⇧</div>
+                    <div class="control-text"><b>ปัดขึ้น (กระโดด)</b><span>หลบด้านล่าง / เก็บแต้มลอยฟ้า</span></div>
+                </div>
+                <div class="control-row">
+                    <div class="control-glyph">⇩</div>
+                    <div class="control-text"><b>ปัดลง (หมอบ)</b><span>ก้มหลบสิ่งกีดขวางที่ลอยอยู่</span></div>
+                </div>
+                <div class="control-row">
+                    <div class="control-glyph">◈</div>
+                    <div class="control-text"><b>คริสตัลพลังงาน</b><span>เก็บสะสมรับ +70 คะแนน • ยิ่งเล่นนานยิ่งยากขึ้น</span></div>
+                </div>
+            </div>
+
+            <div class="tap-to-start-btn">แตะเพื่อเริ่มเล่น</div>
+        </div>
+    </div>
+
+    <div id="game-canvas-fallback">
+        <div class="main-title">ไม่รองรับ WebGL</div>
+        <div style="color:var(--muted); font-size:13px; max-width:280px;">
+            อุปกรณ์หรือเบราว์เซอร์นี้ไม่รองรับการแสดงผล 3D กรุณาอัปเดตซอฟต์แวร์แท็บเล็ต หรือเปิดผ่านเบราว์เซอร์อื่น
+        </div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        'use strict';
+
+        /* =====================================================================
+           CONFIG — ค่าตั้งต้นและเส้นโค้งความยาก (เริ่มระดับกลาง ไล่ขึ้นสู่ยาก)
+           ===================================================================== */
+        const CONFIG = {
+            LANES: [-2.2, 0, 2.2],
+            BASE_SPEED: 0.5,          // ความเร็วเริ่มต้น (ปานกลาง ไม่ใช่โหมดง่าย)
+            MAX_SPEED: 1.35,          // เพดานความเร็วสูงสุด
+            SPEED_RAMP: 0.00016,      // อัตราเร่งความเร็วต่อ "เฟรมมาตรฐาน" (60fps)
+            SPAWN_BASE_FRAMES: 32,    // ระยะเวลาระหว่างการ spawn ที่ระดับ 1
+            SPAWN_MIN_FRAMES: 15,     // spawn ถี่ที่สุดเมื่อระดับสูงมาก
+            SPAWN_LEVEL_STEP: 1.6,    // ความถี่การ spawn ที่ลดลงต่อระดับ
+            SCORE_PER_TICK: 70,
+            SCORE_TICK_FRAMES: 25,
+            LEVEL_SCORE_STEP: 650,
+            DOUBLE_LANE_START_LEVEL: 3,
+            DOUBLE_LANE_MAX_CHANCE: 0.4,
+            POOL_SIZE: 6,
+            FRAME_SCALE_CLAMP: 2.2,   // กันการกระโดดของเวลาเมื่อแท็บกลับมาทำงานหลัง sleep
+
+            // --- ประสิทธิภาพ/คุณภาพภาพ ปรับสำหรับแท็บเล็ตสเปกจำกัด ---
+            PIXEL_RATIO_START: 1.1,
+            PIXEL_RATIO_MAX: 1.25,
+            PIXEL_RATIO_MIN: 0.7,
+            TARGET_FPS_LOW: 42,       // ต่ำกว่านี้ต่อเนื่อง → ลดคุณภาพ
+            TARGET_FPS_CRITICAL: 30,  // ต่ำกว่านี้ต่อเนื่อง → ลดฉากเพิ่มอีกขั้น
+            FPS_SAMPLE_WINDOW: 1.0,   // วินาที ต่อการประเมินคุณภาพหนึ่งครั้ง
+
+            CITY_ROW_STEP: 28,        // ระยะห่างแถวอาคาร (เดิม 20) — น้อยแถวลง ลด draw call
+            CITY_ROW_COUNT: 7,        // จำนวนแถวอาคารที่สร้างจริง
+        };
+        CONFIG.CITY_WRAP_DISTANCE = (CONFIG.CITY_ROW_COUNT - 1) * CONFIG.CITY_ROW_STEP;
+
+        /* =====================================================================
+           STATE
+           ===================================================================== */
+        let scene, camera, renderer, clock;
+        let playerGroup, playerEyes = [];
+        let currentLane = 1;
+        let isPlaying = false;
+        let isPaused = false;      // พักจริง (สลับแท็บ / จอดับ / context หลุด) ไม่ใช่ game over
+
+        let score = 0, level = 1, gameSpeed = CONFIG.BASE_SPEED;
+        let elapsedTime = 0;
+        let scoreTickTimer = 0;
+        let spawnTimer = 0;
+        let highScore = safeGetHighScore();
+
+        let buildings = [];
+        let particles = [];
+
+        let isJumping = false, jumpVelocity = 0;
+        let isDucking = false, duckTimer = 0;
+
+        let lowObstaclePool, highObstaclePool, crystalPool, orbPool;
+        let activeObstacles = [];
+        let activeItems = [];
+
+        let audioCtx = null;
+        let wakeLockSentinel = null;
+
+        // --- ตัวจัดการคุณภาพภาพแบบปรับอัตโนมัติตาม FPS จริงของอุปกรณ์ ---
+        let currentPixelRatio = CONFIG.PIXEL_RATIO_START;
+        let fpsWindowTime = 0, fpsWindowFrames = 0;
+        let lowPowerModeApplied = false;
+        let criticalPowerModeApplied = false;
+
+        document.getElementById('highScoreText').innerText = highScore;
+
+        function safeGetHighScore() {
+            try { return parseInt(localStorage.getItem('sun_robot_whitecity_highscore') || '0', 10) || 0; }
+            catch (e) { return 0; }
+        }
+        function safeSetHighScore(v) {
+            try { localStorage.setItem('sun_robot_whitecity_highscore', String(v)); } catch (e) { /* storage unavailable — ignore */ }
+        }
+
+        /* =====================================================================
+           AUDIO — Web Audio API, ไม่พึ่งไฟล์ภายนอก, ทนต่อ autoplay policy
+           ===================================================================== */
+        function initAudio() {
+            try {
+                if (!audioCtx) {
+                    const Ctx = window.AudioContext || window.webkitAudioContext;
+                    if (Ctx) audioCtx = new Ctx();
+                }
+                if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+            } catch (e) { audioCtx = null; }
+        }
+
+        function playSound(type) {
+            if (!audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                const now = audioCtx.currentTime;
+
+                const presets = {
+                    coin: { wave: 'sine', f0: 800, f1: 1600, dur: 0.12, g: 0.3 },
+                    jump: { wave: 'triangle', f0: 250, f1: 600, dur: 0.15, g: 0.3 },
+                    duck: { wave: 'sawtooth', f0: 400, f1: 180, dur: 0.12, g: 0.2 },
+                    hit:  { wave: 'sawtooth', f0: 150, f1: 40,  dur: 0.35, g: 0.5 },
+                };
+                const p = presets[type];
+                if (!p) return;
+
+                osc.type = p.wave;
+                osc.frequency.setValueAtTime(p.f0, now);
+                osc.frequency.exponentialRampToValueAtTime(p.f1, now + p.dur);
+                gain.gain.setValueAtTime(p.g, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + p.dur);
+                osc.start(now);
+                osc.stop(now + p.dur);
+            } catch (e) { /* audio glitch ไม่ควรทำเกมพัง */ }
+        }
+
+        /* =====================================================================
+           SCENE SETUP
+           ===================================================================== */
+        function isWebGLAvailable() {
+            try {
+                const canvas = document.createElement('canvas');
+                return !!(window.WebGLRenderingContext &&
+                    (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
+            } catch (e) { return false; }
+        }
+
+        function init3D() {
+            const container = document.getElementById('game-container');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xdfe7f2);
+            scene.fog = new THREE.FogExp2(0xdfe7f2, 0.02);
+
+            camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.set(0, 3.9, 7.2);
+            camera.lookAt(0, 1.2, -5);
+
+            // antialias ปิดไว้ก่อน (ต้นทุน fragment shading สูงบน GPU ฝังตัวสเปกจำกัด)
+            // powerPreference ปล่อยให้เบราว์เซอร์เลือกเอง — การบังคับ 'high-performance'
+            // บนแท็บเล็ต/embedded WebView บางรุ่นกลับทำให้เลือกเส้นทางเรนเดอร์ที่ช้าลง
+            renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            currentPixelRatio = Math.min(window.devicePixelRatio || 1, CONFIG.PIXEL_RATIO_START);
+            renderer.setPixelRatio(currentPixelRatio);
+            container.appendChild(renderer.domElement);
+
+            // จัดการ context loss/restore — สำคัญมากสำหรับแท็บเล็ตที่รันเกมยาวๆ
+            renderer.domElement.addEventListener('webglcontextlost', (e) => {
+                e.preventDefault();
+                isPaused = true;
+                console.warn('[CityRunner] WebGL context lost — pausing.');
+            }, false);
+            renderer.domElement.addEventListener('webglcontextrestored', () => {
+                isPaused = !isPlaying ? isPaused : false;
+                if (clock) clock.getDelta(); // ล้างเวลาที่สะสมไว้ ไม่ให้กระโดด
+                console.warn('[CityRunner] WebGL context restored — resuming.');
+            }, false);
+
+            const hemi = new THREE.HemisphereLight(0xdfefff, 0xb9c4d6, 0.75);
+            scene.add(hemi);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
+            dirLight.position.set(8, 18, 8);
+            scene.add(dirLight);
+            const rimLight = new THREE.DirectionalLight(0x37e6ff, 0.35);
+            rimLight.position.set(-6, 6, -10);
+            scene.add(rimLight);
+
+            buildRoad();
+            createCityBuildings();
+            createParticles();
+            createPlayer();
+            buildPools();
+
+            setupResizeHandling(container);
+        }
+
+        function buildRoad() {
+            const roadGeo = new THREE.PlaneGeometry(8, 200);
+            const roadMat = new THREE.MeshStandardMaterial({ color: 0xd7dee8, roughness: 0.35, metalness: 0.1 });
+            const road = new THREE.Mesh(roadGeo, roadMat);
+            road.rotation.x = -Math.PI / 2;
+            road.position.z = -80;
+            scene.add(road);
+
+            for (const l of [-1.1, 1.1]) {
+                const lineMesh = new THREE.Mesh(
+                    new THREE.PlaneGeometry(0.08, 200),
+                    new THREE.MeshBasicMaterial({ color: 0x2f6bff })
+                );
+                lineMesh.rotation.x = -Math.PI / 2;
+                lineMesh.position.set(l, 0.01, -80);
+                scene.add(lineMesh);
+            }
+            for (const l of [-3.9, 3.9]) {
+                const edge = new THREE.Mesh(
+                    new THREE.PlaneGeometry(0.1, 200),
+                    new THREE.MeshBasicMaterial({ color: 0x37e6ff })
+                );
+                edge.rotation.x = -Math.PI / 2;
+                edge.position.set(l, 0.015, -80);
+                scene.add(edge);
+            }
+        }
+
+        function setupResizeHandling(container) {
+            const doResize = () => onWindowResize(container);
+            window.addEventListener('resize', doResize, false);
+            window.addEventListener('orientationchange', () => setTimeout(doResize, 150), false);
+            // ResizeObserver ครอบคลุมกรณีที่ container เปลี่ยนขนาดโดยไม่มี window resize event
+            // (เช่น embedded webview บนแท็บเล็ตหุ่นยนต์บางรุ่น)
+            try {
+                const ro = new ResizeObserver(doResize);
+                ro.observe(container);
+            } catch (e) { /* ResizeObserver ไม่รองรับ — ใช้ window resize อย่างเดียวพอ */ }
+        }
+
+        function onWindowResize(container) {
+            if (!container || !camera || !renderer) return;
+            const w = container.clientWidth, h = container.clientHeight;
+            if (w === 0 || h === 0) return;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+            // คง currentPixelRatio ที่ระบบปรับอัตโนมัติไว้ ไม่ดีดกลับค่าสูงตอน resize
+            currentPixelRatio = Math.min(currentPixelRatio, window.devicePixelRatio || 1);
+            renderer.setPixelRatio(currentPixelRatio);
+        }
+
+        function glowEdges(mesh, color) {
+            const edges = new THREE.EdgesGeometry(mesh.geometry);
+            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.55 }));
+            mesh.add(line);
+        }
+
+        /* =====================================================================
+           PLAYER
+           ===================================================================== */
+        function createPlayer() {
+            playerGroup = new THREE.Group();
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0xf1f4f9, metalness: 0.55, roughness: 0.25 });
+            const navyMat = new THREE.MeshStandardMaterial({ color: 0x131c30, metalness: 0.4, roughness: 0.35 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x0a0e18, metalness: 0.3, roughness: 0.4 });
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0x37e6ff });
+
+            const hip = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.42, 0.55), navyMat);
+            hip.position.y = 0.5;
+            playerGroup.add(hip);
+
+            for (const side of [-1, 1]) {
+                const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.17, 0.5, 10), metalMat);
+                leg.position.set(side * 0.22, 0.22, 0);
+                playerGroup.add(leg);
+                const foot = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.12, 0.34), navyMat);
+                foot.position.set(side * 0.22, -0.02, 0.05);
+                playerGroup.add(foot);
+            }
+
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.85, 0.52), metalMat);
+            torso.position.y = 1.15;
+            glowEdges(torso, 0x37e6ff);
+            playerGroup.add(torso);
+
+            const core = new THREE.Mesh(new THREE.CircleGeometry(0.11, 20), eyeMat);
+            core.position.set(0, 1.22, 0.27);
+            playerGroup.add(core);
+            const coreRing = new THREE.Mesh(new THREE.RingGeometry(0.13, 0.16, 20), new THREE.MeshBasicMaterial({ color: 0x2f6bff, side: THREE.DoubleSide }));
+            coreRing.position.set(0, 1.22, 0.268);
+            playerGroup.add(coreRing);
+
+            const waistBand = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.14, 0.54), navyMat);
+            waistBand.position.y = 0.76;
+            playerGroup.add(waistBand);
+
+            const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.2, 10), navyMat);
+            neck.position.y = 1.66;
+            playerGroup.add(neck);
+
+            const head = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.46, 0.52), navyMat);
+            head.position.y = 1.98;
+            glowEdges(head, 0x37e6ff);
+            playerGroup.add(head);
+
+            const visor = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.15, 0.05), darkMat);
+            visor.position.set(0, 2.0, 0.27);
+            playerGroup.add(visor);
+
+            for (const side of [-1, 1]) {
+                const eye = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.04), eyeMat);
+                eye.position.set(side * 0.13, 2.0, 0.3);
+                playerGroup.add(eye);
+                playerEyes.push(eye);
+            }
+
+            for (const side of [-1, 1]) {
+                const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.36, 16, 14), metalMat);
+                shoulder.scale.set(1, 0.9, 1);
+                shoulder.position.set(side * 0.72, 1.5, 0);
+                glowEdges(shoulder, 0x37e6ff);
+                playerGroup.add(shoulder);
+
+                const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.42, 10), navyMat);
+                upperArm.position.set(side * 0.74, 1.14, 0);
+                playerGroup.add(upperArm);
+
+                const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.125, 0.4, 10), metalMat);
+                forearm.position.set(side * 0.74, 0.78, 0);
+                playerGroup.add(forearm);
+
+                const hand = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 10), navyMat);
+                hand.position.set(side * 0.74, 0.55, 0);
+                playerGroup.add(hand);
+            }
+
+            playerGroup.position.set(CONFIG.LANES[1], 0, 0);
+            scene.add(playerGroup);
+        }
+
+        /* =====================================================================
+           CITY / PARTICLES (ฉากพื้นหลัง — วนซ้ำตำแหน่งแทนสร้างใหม่)
+           ===================================================================== */
+        function createCityBuildings() {
+            const bmat = new THREE.MeshStandardMaterial({ color: 0xf2f5fa, roughness: 0.4, metalness: 0.15 });
+
+            const canvasText = document.createElement('canvas');
+            canvasText.width = 512; canvasText.height = 128;
+            const ctxText = canvasText.getContext('2d');
+            ctxText.fillStyle = '#070c18';
+            ctxText.fillRect(0, 0, 512, 128);
+            ctxText.strokeStyle = '#37e6ff';
+            ctxText.lineWidth = 6;
+            ctxText.strokeRect(6, 6, 500, 116);
+            ctxText.fillStyle = '#37e6ff';
+            ctxText.font = '700 40px "Chakra Petch", sans-serif';
+            ctxText.textAlign = 'center';
+            ctxText.shadowColor = '#37e6ff';
+            ctxText.shadowBlur = 18;
+            ctxText.fillText('SUNROBOTICS&AI', 256, 78);
+            const signTexture = new THREE.CanvasTexture(canvasText);
+
+            // ระยะห่างอาคารกว้างขึ้น (20 → 28) = จำนวนอาคาร/draw call น้อยลงราว 30%
+            // และใส่ป้ายไฟ/เส้นขอบเรืองแสงเฉพาะทุกแถวที่ 2 เพื่อลดจำนวน mesh รวม
+            let rowIndex = 0;
+            for (let z = 0; rowIndex < CONFIG.CITY_ROW_COUNT; z -= CONFIG.CITY_ROW_STEP) {
+                const showDetail = (rowIndex % 2 === 0);
+                for (const side of [-8, 8]) {
+                    const h = 12 + Math.random() * 12;
+                    const bgeo = new THREE.BoxGeometry(6, h, 12);
+                    const bmesh = new THREE.Mesh(bgeo, bmat);
+                    bmesh.position.set(side, h / 2, z);
+                    scene.add(bmesh);
+                    buildings.push(bmesh);
+
+                    if (showDetail) {
+                        const edges = new THREE.EdgesGeometry(bgeo);
+                        const edgeLines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x37e6ff, transparent: true, opacity: 0.3 }));
+                        bmesh.add(edgeLines);
+
+                        const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.12, h * 0.9), new THREE.MeshBasicMaterial({ color: 0x37e6ff, transparent: true, opacity: 0.5 }));
+                        stripe.position.set(side > 0 ? side - 3.02 : side + 3.02, 0, 1);
+                        stripe.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+                        bmesh.add(stripe);
+
+                        const signGeo = new THREE.PlaneGeometry(7.5, 1.9);
+                        const signMat = new THREE.MeshBasicMaterial({ map: signTexture });
+                        const signMesh = new THREE.Mesh(signGeo, signMat);
+                        signMesh.position.set(side > 0 ? side - 3.01 : side + 3.01, 6, z);
+                        signMesh.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+                        scene.add(signMesh);
+                        buildings.push(signMesh);
+                    }
+                }
+                rowIndex++;
+            }
+        }
+
+        function createParticles() {
+            const pGeo = new THREE.BoxGeometry(0.05, 0.05, 0.05);
+            const pMat = new THREE.MeshBasicMaterial({ color: 0x37e6ff, transparent: true, opacity: 0.7 });
+            // ลดจาก 40 → 24 ชิ้น: เอฟเฟกต์ยังเห็นชัด แต่ลดภาระวาดภาพบน GPU สเปกจำกัด
+            for (let i = 0; i < 24; i++) {
+                const p = new THREE.Mesh(pGeo, pMat);
+                p.position.set((Math.random() - 0.5) * 9, Math.random() * 6 + 0.2, -Math.random() * CONFIG.CITY_WRAP_DISTANCE);
+                scene.add(p);
+                particles.push(p);
+            }
+        }
+
+        /* =====================================================================
+           OBJECT POOLING — สร้าง mesh ล่วงหน้าครั้งเดียว แล้วนำกลับมาใช้ใหม่
+           ลดการ create/dispose geometry ระหว่างเกม ซึ่งเป็นสาเหตุหลักของอาการ
+           กระตุกบนฮาร์ดแวร์ที่มีสเปกจำกัดอย่างแท็บเล็ตควบคุมหุ่นยนต์
+           ===================================================================== */
+        function makeLowObstacle() {
+            const mesh = new THREE.Mesh(
+                new THREE.BoxGeometry(1.2, 1.2, 1.2),
+                new THREE.MeshStandardMaterial({ color: 0xff2f6a, roughness: 0.25, metalness: 0.2 })
+            );
+            glowEdges(mesh, 0xffffff);
+            return mesh;
+        }
+        function makeHighObstacle() {
+            const mesh = new THREE.Mesh(
+                new THREE.BoxGeometry(1.4, 1.0, 1.2),
+                new THREE.MeshStandardMaterial({ color: 0xff6a2f, roughness: 0.25, metalness: 0.2 })
+            );
+            glowEdges(mesh, 0xffffff);
+            return mesh;
+        }
+        function makeCrystalItem() {
+            return new THREE.Mesh(
+                new THREE.OctahedronGeometry(0.4),
+                new THREE.MeshStandardMaterial({ color: 0xffb020, metalness: 0.7, roughness: 0.15, emissive: 0x442200 })
+            );
+        }
+        function makeOrbItem() {
+            return new THREE.Mesh(
+                new THREE.OctahedronGeometry(0.5),
+                new THREE.MeshStandardMaterial({ color: 0x37e6ff, metalness: 0.7, roughness: 0.15, emissive: 0x0a3a44 })
+            );
+        }
+
+        function buildPool(builder, size) {
+            const pool = [];
+            for (let i = 0; i < size; i++) {
+                const mesh = builder();
+                mesh.visible = false;
+                mesh.position.set(0, -50, 0);
+                scene.add(mesh);
+                pool.push({ mesh, active: false });
+            }
+            return pool;
+        }
+
+        function buildPools() {
+            lowObstaclePool = buildPool(makeLowObstacle, CONFIG.POOL_SIZE);
+            highObstaclePool = buildPool(makeHighObstacle, CONFIG.POOL_SIZE);
+            crystalPool = buildPool(makeCrystalItem, CONFIG.POOL_SIZE);
+            orbPool = buildPool(makeOrbItem, CONFIG.POOL_SIZE);
+        }
+
+        function getFreeSlot(pool) {
+            for (const slot of pool) if (!slot.active) return slot;
+            return null; // pool เต็ม — ข้ามการ spawn รอบนี้ไปเงียบๆ ปลอดภัยกว่าล้น
+        }
+
+        function releaseSlot(slot) {
+            slot.active = false;
+            slot.mesh.visible = false;
+            slot.mesh.position.set(0, -50, 0);
+        }
+
+        function resetPools() {
+            [lowObstaclePool, highObstaclePool, crystalPool, orbPool].forEach(pool => {
+                pool.forEach(releaseSlot);
+            });
+            activeObstacles = [];
+            activeItems = [];
+        }
+
+        /* =====================================================================
+           SPAWNING — ความถี่และรูปแบบผันตามระดับความยากปัจจุบัน
+           ===================================================================== */
+        function pickLanes(n) {
+            const idx = [0, 1, 2];
+            for (let i = idx.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [idx[i], idx[j]] = [idx[j], idx[i]];
+            }
+            return idx.slice(0, n);
+        }
+
+        function spawnLowWithCrystal(lane) {
+            const slot = getFreeSlot(lowObstaclePool);
+            if (slot) {
+                slot.active = true; slot.mesh.visible = true; slot.mesh.rotation.set(0, 0, 0);
+                slot.mesh.position.set(CONFIG.LANES[lane], 0.6, -60);
+                activeObstacles.push({ slot, lane, type: 'low' });
+            }
+            const islot = getFreeSlot(crystalPool);
+            if (islot) {
+                islot.active = true; islot.mesh.visible = true;
+                islot.mesh.position.set(CONFIG.LANES[lane], 2.2, -60);
+                activeItems.push({ slot: islot, lane });
+            }
+        }
+        function spawnHigh(lane) {
+            const slot = getFreeSlot(highObstaclePool);
+            if (slot) {
+                slot.active = true; slot.mesh.visible = true; slot.mesh.rotation.set(0, 0, 0);
+                slot.mesh.position.set(CONFIG.LANES[lane], 2.0, -60);
+                activeObstacles.push({ slot, lane, type: 'high' });
+            }
+        }
+        function spawnOrb(lane) {
+            const slot = getFreeSlot(orbPool);
+            if (slot) {
+                slot.active = true; slot.mesh.visible = true;
+                slot.mesh.position.set(CONFIG.LANES[lane], 0.8, -60);
+                activeItems.push({ slot, lane });
+            }
+        }
+
+        function spawnThresholdForLevel(lv) {
+            return Math.max(CONFIG.SPAWN_MIN_FRAMES, CONFIG.SPAWN_BASE_FRAMES - (lv - 1) * CONFIG.SPAWN_LEVEL_STEP);
+        }
+
+        function spawnObjects(frameScale) {
+            spawnTimer += frameScale;
+            const threshold = spawnThresholdForLevel(level);
+            if (spawnTimer <= threshold) return;
+            spawnTimer = 0;
+
+            const doubleChance = level >= CONFIG.DOUBLE_LANE_START_LEVEL
+                ? Math.min(CONFIG.DOUBLE_LANE_MAX_CHANCE, (level - (CONFIG.DOUBLE_LANE_START_LEVEL - 1)) * 0.08)
+                : 0;
+            const laneCount = Math.random() < doubleChance ? 2 : 1;
+            const chosenLanes = pickLanes(laneCount);
+
+            chosenLanes.forEach(lane => {
+                const r = Math.random();
+                if (r < 0.4) spawnLowWithCrystal(lane);
+                else if (r < 0.7) spawnHigh(lane);
+                else spawnOrb(lane);
+            });
+        }
+
+        /* =====================================================================
+           CONTROLS — touch swipe, on-screen buttons, keyboard
+           ===================================================================== */
+        let touchStartX = 0, touchStartY = 0;
+        const gameContainer = document.getElementById('game-container');
+        const overlay = document.getElementById('overlay');
+
+        function beginPlay() {
+            initAudio();
+            startGame();
+        }
+        overlay.addEventListener('touchstart', (e) => { e.preventDefault(); beginPlay(); }, { passive: false });
+        overlay.addEventListener('click', beginPlay);
+
+        gameContainer.addEventListener('touchstart', e => {
+            if (e.touches.length > 0) {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+            }
+        }, { passive: true });
+
+        gameContainer.addEventListener('touchmove', e => { e.preventDefault(); }, { passive: false });
+
+        gameContainer.addEventListener('touchend', e => {
+            if (!isPlaying || isPaused) return;
+            if (!e.changedTouches || e.changedTouches.length === 0) return;
+
+            const diffX = e.changedTouches[0].clientX - touchStartX;
+            const diffY = e.changedTouches[0].clientY - touchStartY;
+
+            if (Math.max(Math.abs(diffX), Math.abs(diffY)) > 25) {
+                if (Math.abs(diffX) > Math.abs(diffY)) {
+                    if (diffX > 0 && currentLane < 2) currentLane++;
+                    else if (diffX < 0 && currentLane > 0) currentLane--;
+                } else {
+                    if (diffY < 0 && !isJumping) doJump();
+                    else if (diffY > 0 && !isJumping) startDucking();
+                }
+            }
+        }, { passive: true });
+
+        function bindButton(id, handler) {
+            const el = document.getElementById(id);
+            el.addEventListener('touchstart', (e) => { e.preventDefault(); handler(); }, { passive: false });
+            el.addEventListener('mousedown', handler);
+        }
+        bindButton('btn-left', () => { if (isPlaying && !isPaused && currentLane > 0) currentLane--; });
+        bindButton('btn-right', () => { if (isPlaying && !isPaused && currentLane < 2) currentLane++; });
+        bindButton('btn-jump', () => { if (isPlaying && !isPaused && !isJumping) doJump(); });
+        bindButton('btn-duck', () => { if (isPlaying && !isPaused && !isJumping) startDucking(); });
+
+        window.addEventListener('keydown', e => {
+            if (!isPlaying || isPaused) return;
+            if (e.key === 'ArrowLeft' && currentLane > 0) currentLane--;
+            if (e.key === 'ArrowRight' && currentLane < 2) currentLane++;
+            if (e.key === 'ArrowUp' && !isJumping) doJump();
+            if (e.key === 'ArrowDown' && !isJumping) startDucking();
+        });
+
+        // ป้องกันการซูม/เมนูค้าง เพื่อความนิ่งของหน้าจอบนแท็บเล็ตแบบ kiosk
+        document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('gesturestart', e => e.preventDefault());
+
+        function doJump() {
+            isJumping = true;
+            jumpVelocity = 0.25;
+            playSound('jump');
+            if (isDucking) stopDucking();
+        }
+        function startDucking() {
+            isDucking = true;
+            duckTimer = 25;
+            playerGroup.scale.set(1, 0.4, 1);
+            playSound('duck');
+        }
+        function stopDucking() {
+            isDucking = false;
+            playerGroup.scale.set(1, 1, 1);
+        }
+
+        /* =====================================================================
+           GAME FLOW
+           ===================================================================== */
+        function startGame() {
+            if (isPlaying) return;
+            score = 0; level = 1; gameSpeed = CONFIG.BASE_SPEED;
+            elapsedTime = 0; scoreTickTimer = 0; spawnTimer = 0;
+            currentLane = 1;
+            stopDucking();
+            isJumping = false; jumpVelocity = 0;
+
+            resetPools();
+
+            document.getElementById('scoreText').innerText = score;
+            document.getElementById('levelText').innerText = level;
+            document.getElementById('overlay').style.display = 'none';
+            isPlaying = true;
+            isPaused = false;
+            if (clock) clock.getDelta();
+            requestWakeLock();
+        }
+
+        function gameOver() {
+            isPlaying = false;
+            playSound('hit');
+            stopDucking();
+            releaseWakeLock();
+
+            if (score > highScore) {
+                highScore = score;
+                safeSetHighScore(highScore);
+                document.getElementById('highScoreText').innerText = highScore;
+            }
+
+            document.getElementById('mainTitleText').innerText = 'GAME OVER';
+            document.getElementById('subTitleText').innerText = 'FINAL SCORE: ' + score;
+            document.getElementById('overlay').style.display = 'flex';
+        }
+
+        /* =====================================================================
+           MAIN LOOP — ใช้ delta-time (frameScale) แทนการนับเฟรมตรงๆ
+           ทำให้ความเร็วเกมคงที่ไม่ว่าจอจะรีเฟรชที่ 30/60/90/120Hz ก็ตาม
+           ===================================================================== */
+        function tick() {
+            const rawDelta = clock.getDelta();
+            // clamp ไม่ให้ค่ากระโดดใหญ่ผิดปกติ (เช่นแท็บเล็ตเพิ่งตื่นจาก sleep)
+            const dt = Math.min(rawDelta, CONFIG.FRAME_SCALE_CLAMP / 60);
+            const frameScale = dt * 60; // 1.0 ที่ 60fps เท่ากับพฤติกรรมเดิม
+
+            elapsedTime += dt;
+            const eyePulse = 0.75 + Math.sin(elapsedTime * 4) * 0.25;
+            for (const e of playerEyes) e.material.color.setScalar(eyePulse);
+
+            updateAdaptiveQuality(dt, rawDelta);
+
+            if (isPlaying && !isPaused) {
+                updateGameplay(frameScale);
+            } else if (!isPlaying) {
+                playerGroup.rotation.y = Math.sin(elapsedTime * 0.6) * 0.35;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        /* =====================================================================
+           ADAPTIVE QUALITY — วัด FPS จริงต่อเนื่อง แล้วลดภาระ GPU อัตโนมัติ
+           ถ้าอุปกรณ์ตามไม่ทัน แก้ปัญหา "ช้า/ดีเลย์" ได้โดยไม่ต้องรู้สเปกเครื่องล่วงหน้า
+           ===================================================================== */
+        function updateAdaptiveQuality(dt, rawDelta) {
+            fpsWindowTime += rawDelta;
+            fpsWindowFrames += 1;
+            if (fpsWindowTime < CONFIG.FPS_SAMPLE_WINDOW) return;
+
+            const avgFps = fpsWindowFrames / fpsWindowTime;
+            fpsWindowTime = 0;
+            fpsWindowFrames = 0;
+
+            if (avgFps < CONFIG.TARGET_FPS_LOW && currentPixelRatio > CONFIG.PIXEL_RATIO_MIN) {
+                currentPixelRatio = Math.max(CONFIG.PIXEL_RATIO_MIN, currentPixelRatio - 0.15);
+                renderer.setPixelRatio(currentPixelRatio);
+            }
+
+            if (avgFps < CONFIG.TARGET_FPS_LOW && !lowPowerModeApplied) {
+                lowPowerModeApplied = true;
+                applyLowPowerMode();
+            }
+
+            if (avgFps < CONFIG.TARGET_FPS_CRITICAL && !criticalPowerModeApplied) {
+                criticalPowerModeApplied = true;
+                applyCriticalPowerMode();
+            }
+        }
+
+        // ขั้นที่ 1: ตัดสิ่งที่ไม่กระทบการเล่น (ฝุ่นลอย/ป้ายไกลๆ) ทิ้งครึ่งหนึ่ง
+        function applyLowPowerMode() {
+            for (let i = 0; i < particles.length; i += 2) particles[i].visible = false;
+            console.warn('[CityRunner] FPS ต่ำ — ลดจำนวนอนุภาคลงครึ่งหนึ่ง');
+        }
+
+        // ขั้นที่ 2: อาการยังไม่ดีขึ้น — ซ่อนอาคารไกลสุดครึ่งหนึ่ง ลดงานเรนเดอร์ฉากหลังอีกชั้น
+        function applyCriticalPowerMode() {
+            for (let i = 0; i < buildings.length; i += 2) buildings[i].visible = false;
+            for (const p of particles) p.visible = false;
+            console.warn('[CityRunner] FPS ต่ำมาก — ลดฉากหลังเพิ่มเติมเพื่อความลื่นไหล');
+        }
+
+        function updateGameplay(frameScale) {
+            playerGroup.position.x += (CONFIG.LANES[currentLane] - playerGroup.position.x) * Math.min(1, 0.22 * frameScale);
+
+            if (isDucking) {
+                duckTimer -= frameScale;
+                if (duckTimer <= 0) stopDucking();
+            }
+
+            if (isJumping) {
+                playerGroup.position.y += jumpVelocity * frameScale;
+                jumpVelocity -= 0.015 * frameScale;
+                if (playerGroup.position.y <= 0) {
+                    playerGroup.position.y = 0;
+                    isJumping = false;
+                }
+            } else if (!isDucking) {
+                playerGroup.position.y = Math.sin(elapsedTime * 9) * 0.03;
+            }
+
+            // ไล่ระดับความยาก: ความเร็วไต่ขึ้นต่อเนื่อง, เลเวลผูกกับคะแนนสะสม
+            gameSpeed = Math.min(CONFIG.MAX_SPEED, gameSpeed + CONFIG.SPEED_RAMP * frameScale);
+            const newLevel = Math.floor(score / CONFIG.LEVEL_SCORE_STEP) + 1;
+            if (newLevel !== level) {
+                level = newLevel;
+                document.getElementById('levelText').innerText = level;
+            }
+
+            scoreTickTimer += frameScale;
+            if (scoreTickTimer >= CONFIG.SCORE_TICK_FRAMES) {
+                score += CONFIG.SCORE_PER_TICK;
+                document.getElementById('scoreText').innerText = score;
+                scoreTickTimer = 0;
+            }
+
+            for (const b of buildings) {
+                b.position.z += gameSpeed * frameScale;
+                if (b.position.z > 10) b.position.z -= CONFIG.CITY_WRAP_DISTANCE;
+            }
+
+            for (const p of particles) {
+                p.position.z += gameSpeed * 1.4 * frameScale;
+                if (p.position.z > 10) {
+                    p.position.z -= CONFIG.CITY_WRAP_DISTANCE;
+                    p.position.x = (Math.random() - 0.5) * 9;
+                    p.position.y = Math.random() * 6 + 0.2;
+                }
+            }
+
+            updateObstacles(frameScale);
+            updateItems(frameScale);
+            spawnObjects(frameScale);
+        }
+
+        function updateObstacles(frameScale) {
+            for (let i = activeObstacles.length - 1; i >= 0; i--) {
+                const obs = activeObstacles[i];
+                const mesh = obs.slot.mesh;
+                mesh.position.z += gameSpeed * frameScale;
+                mesh.rotation.y += 0.01 * frameScale;
+
+                if (mesh.position.z > -0.5 && mesh.position.z < 0.8 && obs.lane === currentLane) {
+                    if (obs.type === 'low' && playerGroup.position.y < 0.8) { gameOver(); return; }
+                    if (obs.type === 'high' && !isDucking) { gameOver(); return; }
+                }
+
+                if (mesh.position.z > 5) {
+                    releaseSlot(obs.slot);
+                    activeObstacles.splice(i, 1);
+                }
+            }
+        }
+
+        function updateItems(frameScale) {
+            for (let i = activeItems.length - 1; i >= 0; i--) {
+                const item = activeItems[i];
+                const mesh = item.slot.mesh;
+                mesh.position.z += gameSpeed * frameScale;
+                mesh.rotation.y += 0.05 * frameScale;
+                mesh.rotation.x += 0.02 * frameScale;
+
+                if (mesh.position.z > -0.8 && mesh.position.z < 0.8 && item.lane === currentLane) {
+                    if (Math.abs((playerGroup.position.y + 0.8) - mesh.position.y) < 0.9) {
+                        score += 70;
+                        playSound('coin');
+                        document.getElementById('scoreText').innerText = score;
+                        releaseSlot(item.slot);
+                        activeItems.splice(i, 1);
+                        continue;
+                    }
+                }
+
+                if (mesh.position.z > 5) {
+                    releaseSlot(item.slot);
+                    activeItems.splice(i, 1);
+                }
+            }
+        }
+
+        /* =====================================================================
+           LIFECYCLE — wake lock, visibility, ป้องกันแอปหลับ/ค้างระหว่างใช้งาน
+           ===================================================================== */
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLockSentinel = await navigator.wakeLock.request('screen');
+                }
+            } catch (e) { /* บางอุปกรณ์ไม่รองรับ — ไม่กระทบการเล่นเกม */ }
+        }
+        function releaseWakeLock() {
+            try { if (wakeLockSentinel) wakeLockSentinel.release(); } catch (e) { /* ignore */ }
+            wakeLockSentinel = null;
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                isPaused = false;
+                if (clock) clock.getDelta(); // ล้างเวลาสะสม กันกระโดดตอนกลับมา
+                if (isPlaying) requestWakeLock();
+            } else {
+                isPaused = true;
+            }
+        });
+
+        /* =====================================================================
+           BOOTSTRAP
+           ===================================================================== */
+        function boot() {
+            if (!isWebGLAvailable()) {
+                document.getElementById('game-canvas-fallback').style.display = 'flex';
+                document.getElementById('overlay').style.display = 'none';
+                return;
+            }
+            clock = new THREE.Clock();
+            init3D();
+            renderer.setAnimationLoop(tick);
+        }
+
+        if (document.fonts && document.fonts.load) {
+            document.fonts.load('700 40px "Chakra Petch"').then(boot).catch(boot);
+        } else {
+            boot();
+        }
+    })();
+</script>
+</body>
+</html>
