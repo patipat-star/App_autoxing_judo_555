@@ -37,18 +37,17 @@ class MainActivity : AppCompatActivity() {
         checkNextPermission()
     }
 
-    // 📌 3. ตัวรับผลลัพธ์การขอสิทธิ์ Runtime (กล้อง, ไมค์, แจ้งเตือน)
-    private val requestRuntimePermissionsLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissionsMap ->
+    // 📌 3. ตัวรับผลลัพธ์การขอสิทธิ์แจ้งเตือน
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
         isPermissionRequesting = false
-        val allGranted = permissionsMap.values.all { it }
-        if (allGranted) {
+        if (granted) {
             checkNextPermission()
         } else {
             Toast.makeText(
                 this,
-                "กรุณายินยอมสิทธิ์ทั้งหมดเพื่อเปิดใช้งานปุ่มลอย",
+                "กรุณายินยอมสิทธิ์แจ้งเตือนเพื่อเปิดใช้งานปุ่มลอย",
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -64,24 +63,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-
-        // 📌 เริ่มต้นเช็กสิทธิ์ทันทีเมื่อเปิด Activity
+        // Activity นี้ไม่มี UI: ทำหน้าที่ขอสิทธิ์ทีละขั้นแล้วเปิด FloatingService
         checkNextPermission()
     }
 
-    // 📌 [สำคัญมาก] รองรับการเปิดแอปซ้ำเมื่อ Activity เปิดค้างใน Background
+    // 📌 รองรับการเปิดแอปซ้ำเมื่อ Activity เปิดค้างใน Background
+    // (ถ้ากำลังขอสิทธิ์อยู่ checkNextPermission จะไม่ขอซ้ำ)
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        isPermissionRequesting = false
-        checkNextPermission()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // 📌 เมื่อกลับมาจากหน้าตั้งค่า ให้ปลดล็อก Flag และตรวจสอบสิทธิ์ขั้นต่อไปทันที
-        isPermissionRequesting = false
         checkNextPermission()
     }
 
@@ -101,9 +91,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Step 3: เช็กสิทธิ์ Runtime (Camera, Audio, Notification)
-        if (!hasAllRuntimePermissions()) {
-            checkAndRequestRuntimePermissions()
+        // Step 3: เช็กสิทธิ์แจ้งเตือน
+        if (!hasNotificationPermission()) {
+            requestNotificationPermission()
             return
         }
 
@@ -164,39 +154,15 @@ class MainActivity : AppCompatActivity() {
         return mode == AppOpsManager.MODE_ALLOWED
     }
 
-    private fun hasAllRuntimePermissions(): Boolean {
-        val permissionsToRequest = mutableListOf(
-            Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        return permissionsToRequest.all {
-            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-        }
-    }
+    // Android 13+ ต้องขอสิทธิ์แจ้งเตือนสำหรับ Foreground Service
+    private fun hasNotificationPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
 
-    private fun checkAndRequestRuntimePermissions() {
-        val permissionsToRequest = mutableListOf(
-            Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO
-        )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-
-        val listPermissionsNeeded = permissionsToRequest.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-
-        if (listPermissionsNeeded.isNotEmpty()) {
-            isPermissionRequesting = true
-            requestRuntimePermissionsLauncher.launch(listPermissionsNeeded.toTypedArray())
-        } else {
-            checkNextPermission()
-        }
+    private fun requestNotificationPermission() {
+        isPermissionRequesting = true
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private fun hasIgnoreBatteryOptimization(): Boolean {

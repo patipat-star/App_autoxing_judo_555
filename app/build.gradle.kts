@@ -38,19 +38,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    buildFeatures {
-        viewBinding = true
-    }
 }
 
 dependencies {
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)
-    implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.navigation.fragment.ktx)
-    implementation(libs.androidx.navigation.ui.ktx)
-    implementation(libs.material)
 
     // 📌 เพิ่ม OkHttp สำหรับเชื่อมต่อ WebSocket สื่อสารกับคอมพิวเตอร์ (YOLOv8)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

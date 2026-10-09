@@ -1,15 +1,18 @@
 package com.example.pcoverlaycontrol
 
-import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.app.usage.UsageStatsManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -25,66 +28,88 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
-import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import okhttp3.*
+import androidx.core.content.ContextCompat
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-import kotlin.concurrent.thread
 import kotlin.math.abs
 
 class FloatingService : Service() {
 
-    private lateinit var windowManager: WindowManager
-    private var floatingView: View? = null
-    private var zoomCloseOverlayView: View? = null
+    companion object {
+        private const val NOTIFICATION_CHANNEL_ID = "overlay_channel"
+        private const val NOTIFICATION_ID = 1
+        private const val ZOOM_CHECK_INTERVAL_MS = 2000L
+        private const val ZOOM_MAX_NOT_FOUND = 10 // ~20 วินาที
+    }
 
-    // 📌 URL สำหรับเครื่องดนตรี และ เว็บเกม 3D ในโฟลเดอร์ assets
-    private val pianoWebUrl = "file:///android_asset/piano.html"
-    private val drumWebUrl = "file:///android_asset/drum.html"
-    private val gameWebUrl = "file:///android_asset/index.html"
-
-    // 📌 IP Address และ Port ของ Raspberry Pi 5 / PC ประมวลผล AI
-    private val pcIpAddress = "192.168.100.245" // IP ของ Raspberry Pi 5
+    // 📌 IP Address และ Port ของ Raspberry Pi 5
+    private val pcIpAddress = "192.168.100.245"
     private val pcPort = 5000
     private val wsPort = 8765
+    private val piBaseUrl = "http://$pcIpAddress:$pcPort"
 
-    // 📌 IP Address ของ Web Dashboard AI จาก Raspberry Pi 5
-    private val piDashboardUrl = "http://$pcIpAddress:$pcPort"
-
-    // 📌 IP Address ของ ESP32
-    private val esp32IpAddress = "192.168.100.20"
-    private var isEsp32LedOn = false
-
+    private lateinit var windowManager: WindowManager
     private val mainHandler = Handler(Looper.getMainLooper())
-
-    // 📌 WebSocket & HTTP Client
     private val okHttpClient = OkHttpClient()
-    private var webSocket: WebSocket? = null
+    private var isDestroyed = false
+
+    // 📌 หน้าต่างปุ่มลอย
+    private var floatingView: View? = null
+    private var floatingParams: WindowManager.LayoutParams? = null
+    private var savedX = 0
+    private var savedY = 0
+
+    // 📌 สตรีมกล้อง (ปุ่ม 4)
+    private var streamWebView: WebView? = null
     private var tvFingerCount: TextView? = null
+    private var webSocket: WebSocket? = null
+    private var isCameraStreamActive = false
 
-    // 📌 ตัวแปรสำหรับระบบตรวจจับการเปิดแอป Zoom ค้างไว้
-    private val zoomPackageName = "us.zoom.videomeetings"
-    private val zoomCheckHandler = Handler(Looper.getMainLooper())
-    private var zoomCheckRunnable: Runnable? = null
+    // 📌 Zoom (ปุ่ม 3)
+    private var zoomCloseOverlayView: View? = null
     private var isZoomMonitoring = false
-
-    // 📌 จำชื่อแอป/หน้าจอที่เปิดอยู่ "ก่อน" กดปุ่ม Zoom
+    private var zoomNotFoundCount = 0
     private var previousForegroundPackage: String? = null
 
-    // 📌 จำว่าตอนนี้กำลังแสดงสตรีมประเภทไหนอยู่ (ใช้ตอนย่อ/ปิดหน้าจอ เพื่อรู้ว่าต้องส่งสัญญาณปิดกล้องที่ Pi 5 หรือไม่)
-    private var activeStreamType: String? = null
+    private val zoomStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                ZoomAccessibilityService.ACTION_ZOOM_OPENED -> {
+                    showCloseZoomButton()
+                    startZoomMonitoring()
+                }
+                ZoomAccessibilityService.ACTION_ZOOM_LEAVE_FINISHED -> returnToPreviousApp()
+            }
+        }
+    }
 
-    private fun showToast(message: String) {
-        mainHandler.post {
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    private val zoomCheckRunnable = object : Runnable {
+        override fun run() {
+            if (!isZoomMonitoring) return
+
+            val isZoomActive = ZoomAccessibilityService.isZoomInForeground ||
+                    getForegroundPackageName() == ZoomAccessibilityService.ZOOM_PACKAGE
+
+            if (isZoomActive) {
+                zoomNotFoundCount = 0
+                showCloseZoomButton()
+            } else if (++zoomNotFoundCount >= ZOOM_MAX_NOT_FOUND) {
+                stopZoomMonitoring()
+                removeCloseZoomButton()
+                return
+            }
+            mainHandler.postDelayed(this, ZOOM_CHECK_INTERVAL_MS)
         }
     }
 
@@ -92,9 +117,28 @@ class FloatingService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        startAsForeground()
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        createNotificationChannel()
-        val notification = NotificationCompat.Builder(this, "overlay_channel")
+        val filter = IntentFilter().apply {
+            addAction(ZoomAccessibilityService.ACTION_ZOOM_OPENED)
+            addAction(ZoomAccessibilityService.ACTION_ZOOM_LEAVE_FINISHED)
+        }
+        ContextCompat.registerReceiver(this, zoomStateReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        initFloatingView()
+        return START_STICKY
+    }
+
+    private fun startAsForeground() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager?.createNotificationChannel(
+            NotificationChannel(NOTIFICATION_CHANNEL_ID, "Overlay Channel", NotificationManager.IMPORTANCE_LOW)
+        )
+
+        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("PC Overlay Control")
             .setContentText("ปุ่มลอยกำลังทำงาน...")
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -103,76 +147,40 @@ class FloatingService : Service() {
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                1,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
-            startForeground(1, notification)
+            startForeground(NOTIFICATION_ID, notification)
         }
+    }
 
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-
+    private fun showToast(message: String) {
         mainHandler.post {
-            initFloatingView()
-        }
-
-        connectWebSocket("ws://$pcIpAddress:$wsPort")
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        mainHandler.post {
-            if (floatingView == null) {
-                initFloatingView()
-            } else {
-                floatingView?.visibility = View.VISIBLE
-            }
-        }
-        return START_STICKY
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                "overlay_channel",
-                "Overlay Channel",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
         }
     }
 
-    @Synchronized
+    private fun overlayWindowType(): Int = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+
+    // ===========================================================================
+    // 📌 ปุ่มลอยหลัก
+    // ===========================================================================
     private fun initFloatingView() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+        if (!Settings.canDrawOverlays(this)) {
             showToast("กรุณาเปิดสิทธิ์ Display over other apps")
             return
         }
 
-        if (floatingView != null) {
-            floatingView?.visibility = View.VISIBLE
+        floatingView?.let {
+            it.visibility = View.VISIBLE
             return
         }
 
         try {
             val view = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null)
-            floatingView = view
-
-            val layoutParamsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            } else {
-                @Suppress("DEPRECATION")
-                WindowManager.LayoutParams.TYPE_PHONE
-            }
-
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
-                layoutParamsType,
+                overlayWindowType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                         WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
@@ -183,599 +191,46 @@ class FloatingService : Service() {
                 y = 100
             }
 
-            // แสดงผล Window
             windowManager.addView(view, params)
+            floatingView = view
+            floatingParams = params
 
-            val btnMain = view.findViewById<ImageButton>(R.id.btnMain)
             val controlButtonsGroup = view.findViewById<View>(R.id.controlButtonsGroup)
-            val mainMenuContainer = view.findViewById<View>(R.id.mainMenuContainer)
-            val btn1 = view.findViewById<ImageButton>(R.id.btn1)
-            val btn2 = view.findViewById<ImageButton>(R.id.btn2)
-            val btn3 = view.findViewById<ImageButton>(R.id.btn3)
-            val btn4 = view.findViewById<Button>(R.id.btn4)
-            val btn5 = view.findViewById<ImageButton>(R.id.btn5)
-            val btnCloseStream = view.findViewById<Button>(R.id.btnCloseStream)
-            val streamWebView = view.findViewById<WebView>(R.id.streamWebView)
-            val streamContainer = view.findViewById<View?>(R.id.streamContainer)
-
-            tvFingerCount = view.findViewById(R.id.tvFingerCount)
-
-            // บังคับแสดงผล Container หลักไว้เสมอ
-            mainMenuContainer?.visibility = View.VISIBLE
-
-            // ตั้งค่าระบบลากและคลิกปุ่มหลัก
-            setupDraggableWindow(view, btnMain, params) {
+            setupDraggableWindow(view, view.findViewById(R.id.btnMain), params) {
                 controlButtonsGroup.visibility =
                     if (controlButtonsGroup.visibility == View.VISIBLE) View.GONE else View.VISIBLE
             }
 
-            fun minimizeToFloatingButton() {
-                // 📌 ถ้ากำลังดูสตรีมกล้อง (ปุ่ม 4) อยู่ ให้สั่งปิดกล้องที่ Pi 5 ก่อนย่อหน้าจอ
-                if (activeStreamType == "camera") {
-                    val stopUrl = "http://$pcIpAddress:$pcPort/api/stop_button4"
-                    val stopRequest = Request.Builder()
-                        .url(stopUrl)
-                        .post(RequestBody.create(null, ByteArray(0)))
-                        .build()
-                    okHttpClient.newCall(stopRequest).enqueue(object : Callback {
-                        override fun onFailure(call: Call, e: IOException) {
-                            showToast("ส่งคำสั่งปิดกล้องไม่สำเร็จ: ${e.message}")
-                        }
-
-                        override fun onResponse(call: Call, response: Response) {
-                            showToast("ปิดกล้องที่ Pi 5 เรียบร้อย")
-                        }
-                    })
+            tvFingerCount = view.findViewById(R.id.tvFingerCount)
+            streamWebView = view.findViewById<WebView>(R.id.streamWebView).apply {
+                settings.apply {
+                    javaScriptEnabled = false
+                    allowFileAccess = false
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    cacheMode = WebSettings.LOAD_NO_CACHE
                 }
-                activeStreamType = null
-
-                try {
-                    streamWebView?.apply {
-                        onPause()
-                        stopLoading()
-                        loadUrl("about:blank")
-                        clearHistory()
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-
-                params.width = WindowManager.LayoutParams.WRAP_CONTENT
-                params.height = WindowManager.LayoutParams.WRAP_CONTENT
-                params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-                windowManager.updateViewLayout(view, params)
-
-                streamContainer?.visibility = View.GONE
-                streamWebView?.visibility = View.GONE
-                btnCloseStream?.visibility = View.GONE
-                mainMenuContainer?.visibility = View.VISIBLE
-
-                showToast("ย่อหน้าจอกลับสู่ปุ่มลอย")
+                webViewClient = WebViewClient()
             }
 
-            // Piano
-            btn1?.setOnClickListener {
-                val isPianoShowing = (streamWebView?.visibility == View.VISIBLE) ||
-                        (streamContainer?.visibility == View.VISIBLE)
-
-                if (isPianoShowing) {
-                    minimizeToFloatingButton()
-                } else {
-                    params.width = WindowManager.LayoutParams.MATCH_PARENT
-                    params.height = WindowManager.LayoutParams.MATCH_PARENT
-                    params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-
-                    windowManager.updateViewLayout(view, params)
-
-                    mainMenuContainer?.visibility = View.GONE
-                    streamContainer?.visibility = View.VISIBLE
-                    streamWebView?.visibility = View.VISIBLE
-                    btnCloseStream?.apply {
-                        visibility = View.VISIBLE
-                        bringToFront()
-                        elevation = 100f
-                    }
-
-                    streamWebView?.settings?.apply {
-                        javaScriptEnabled = true
-                        domStorageEnabled = true
-                        allowFileAccess = true
-                        useWideViewPort = true
-                        loadWithOverviewMode = true
-                        mediaPlaybackRequiresUserGesture = false
-                        cacheMode = WebSettings.LOAD_NO_CACHE
-                    }
-
-                    streamWebView?.webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                            return false
-                        }
-                    }
-
-                    streamWebView?.onResume()
-                    streamWebView?.loadUrl(pianoWebUrl)
-                    showToast("กำลังเปิดเปียโนจำลอง...")
-                }
-            }
-
-            // Game 3D
-            btn2?.setOnClickListener {
-                val isGameShowing = (streamWebView?.visibility == View.VISIBLE) ||
-                        (streamContainer?.visibility == View.VISIBLE)
-
-                if (isGameShowing) {
-                    minimizeToFloatingButton()
-                } else {
-                    params.width = WindowManager.LayoutParams.MATCH_PARENT
-                    params.height = WindowManager.LayoutParams.MATCH_PARENT
-                    params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-
-                    windowManager.updateViewLayout(view, params)
-
-                    mainMenuContainer?.visibility = View.GONE
-                    streamContainer?.visibility = View.VISIBLE
-                    streamWebView?.visibility = View.VISIBLE
-                    btnCloseStream?.apply {
-                        visibility = View.VISIBLE
-                        bringToFront()
-                        elevation = 100f
-                    }
-
-                    streamWebView?.settings?.apply {
-                        javaScriptEnabled = true
-                        domStorageEnabled = true
-                        allowFileAccess = true
-                        useWideViewPort = true
-                        loadWithOverviewMode = true
-                        mediaPlaybackRequiresUserGesture = false
-                        cacheMode = WebSettings.LOAD_NO_CACHE
-                    }
-
-                    streamWebView?.webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                            return false
-                        }
-                    }
-
-                    streamWebView?.onResume()
-                    streamWebView?.loadUrl(gameWebUrl)
-                    showToast("กำลังเปิดเกม 3D...")
-                }
-            }
-
-            // Zoom
-            btn3?.setOnClickListener {
-                try {
-                    // Zoom เป็นแอปแยกจากแอปนี้ จึงให้ AccessibilityService เป็นตัวช่วย
-                    // เปิดกล้อง/ไมค์ในหน้าประชุมเมื่อมีปุ่ม "เปิด" ให้กด
-                    ZoomAccessibilityService.autoEnableMediaRequested.set(true)
-                    ZoomAccessibilityService.forceLeaveRequested.set(false)
-
-                    previousForegroundPackage = getForegroundPackageName()
-
-                    val launchIntent = packageManager.getLaunchIntentForPackage(zoomPackageName)
-                    if (launchIntent != null) {
-                        launchIntent.addFlags(
-                            Intent.FLAG_ACTIVITY_NEW_TASK or
-                                    Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
-                                    Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        )
-                        startActivity(launchIntent)
-                        showToast("กำลังเปิดหน้าหลัก Zoom...")
-
-                        showCloseZoomButton()
-                        startZoomMonitoring()
-                    } else {
-                        showToast("ไม่พบแอป Zoom ในเครื่อง")
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    showToast("ไม่สามารถเปิด Zoom ได้")
-                }
-            }
-
-            // 📌 [ปุ่มที่ 4] สตรีมภาพวิดีโอจาก Pi 5 บังคับดึงยืดเต็มจอ 100% พอดี ไม่เบี้ยว
-            btn4?.setOnClickListener {
-                val isCameraShowing = (streamWebView?.visibility == View.VISIBLE) ||
-                        (streamContainer?.visibility == View.VISIBLE)
-
-                if (isCameraShowing) {
-                    minimizeToFloatingButton()
-                } else {
-                    params.width = WindowManager.LayoutParams.MATCH_PARENT
-                    params.height = WindowManager.LayoutParams.MATCH_PARENT
-                    params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-
-                    windowManager.updateViewLayout(view, params)
-
-                    mainMenuContainer?.visibility = View.GONE
-                    streamContainer?.visibility = View.VISIBLE
-                    streamWebView?.visibility = View.VISIBLE
-
-                    // นำปุ่มปิดขึ้นเลเยอร์บนสุด ป้องกันวิดีโอบัง
-                    btnCloseStream?.apply {
-                        visibility = View.VISIBLE
-                        bringToFront()
-                        elevation = 100f
-                    }
-
-                    streamWebView?.settings?.apply {
-                        javaScriptEnabled = true
-                        domStorageEnabled = true
-                        allowFileAccess = false
-                        useWideViewPort = true
-                        loadWithOverviewMode = true
-                        mediaPlaybackRequiresUserGesture = false
-                        cacheMode = WebSettings.LOAD_NO_CACHE
-                    }
-
-                    streamWebView?.webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                            return false
-                        }
-                    }
-
-                    // 📌 [แก้ปัญหาภาพไม่เต็มจอ/ขึ้นเป็นไอคอนแตก]
-                    // ห้าม loadUrl ไปที่สตรีม MJPEG ตรงๆ เพราะ WebView ไม่รองรับการเปิด
-                    // multipart/x-mixed-replace เป็นหน้าเว็บหลัก (top-level navigation) โดยตรง
-                    // ต้องห่อด้วย <img> ในหน้า HTML ของเราเองแล้วสั่ง render ผ่าน loadDataWithBaseURL แทน
-                    val videoFeedUrl = "http://$pcIpAddress:$pcPort/video_feed"
-                    val streamHtml = """
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                            <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-                            <style>
-                                html, body {
-                                    margin: 0; padding: 0;
-                                    width: 100%; height: 100%;
-                                    background-color: #000;
-                                    overflow: hidden;
-                                }
-                                img {
-                                    width: 100vw;
-                                    height: 100vh;
-                                    object-fit: cover; /* เต็มจอโดยไม่เบี้ยว ถ้าต้องการยืดเต็มแบบไม่รักษาสัดส่วนให้เปลี่ยนเป็น fill */
-                                    display: block;
-                                }
-                            </style>
-                        </head>
-                        <body>
-                            <img src="$videoFeedUrl">
-                        </body>
-                        </html>
-                    """.trimIndent()
-
-                    activeStreamType = "camera"
-                    streamWebView?.onResume()
-                    streamWebView?.loadDataWithBaseURL(
-                        "http://$pcIpAddress:$pcPort/",
-                        streamHtml,
-                        "text/html",
-                        "UTF-8",
-                        null
-                    )
-
-                    // ส่ง HTTP Request ไปที่ Raspberry Pi 5 สลับโหมดติดตามคน (เปิดกล้อง)
-                    val triggerUrl = "http://$pcIpAddress:$pcPort/api/trigger_button4"
-                    val request = Request.Builder()
-                        .url(triggerUrl)
-                        .post(RequestBody.create(null, ByteArray(0)))
-                        .build()
-
-                    okHttpClient.newCall(request).enqueue(object : Callback {
-                        override fun onFailure(call: Call, e: IOException) {
-                            showToast("เชื่อมต่อ Pi 5 ไม่สำเร็จ: ${e.message}")
-                        }
-
-                        override fun onResponse(call: Call, response: Response) {
-                            showToast("เปิดโหมดติดตามคน (PERSON) บน Pi 5 เรียบร้อย")
-                        }
-                    })
-
-                    showToast("กำลังเปิดสตรีมภาพแบบเต็มจอ...")
-                }
-            }
-
-            // Drum
-            btn5?.setOnClickListener {
-                val isDrumShowing = (streamWebView?.visibility == View.VISIBLE) ||
-                        (streamContainer?.visibility == View.VISIBLE)
-
-                if (isDrumShowing) {
-                    minimizeToFloatingButton()
-                } else {
-                    params.width = WindowManager.LayoutParams.MATCH_PARENT
-                    params.height = WindowManager.LayoutParams.MATCH_PARENT
-                    params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-
-                    windowManager.updateViewLayout(view, params)
-
-                    mainMenuContainer?.visibility = View.GONE
-                    streamContainer?.visibility = View.VISIBLE
-                    streamWebView?.visibility = View.VISIBLE
-                    btnCloseStream?.apply {
-                        visibility = View.VISIBLE
-                        bringToFront()
-                        elevation = 100f
-                    }
-
-                    streamWebView?.settings?.apply {
-                        javaScriptEnabled = true
-                        domStorageEnabled = true
-                        allowFileAccess = true
-                        useWideViewPort = true
-                        loadWithOverviewMode = true
-                        mediaPlaybackRequiresUserGesture = false
-                        cacheMode = WebSettings.LOAD_NO_CACHE
-                    }
-
-                    streamWebView?.webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                            return false
-                        }
-                    }
-
-                    streamWebView?.onResume()
-                    streamWebView?.loadUrl(drumWebUrl)
-                    showToast("กำลังเปิดกลองชุดจำลอง...")
-                }
-            }
-
-            btnCloseStream?.setOnClickListener {
-                minimizeToFloatingButton()
-            }
-
+            view.findViewById<View>(R.id.btn3).setOnClickListener { openZoom() }
+            view.findViewById<View>(R.id.btn4).setOnClickListener { openCameraStream() }
+            view.findViewById<View>(R.id.btnCloseStream).setOnClickListener { closeCameraStream() }
         } catch (e: Exception) {
             e.printStackTrace()
+            floatingView = null
+            floatingParams = null
             showToast("สร้างปุ่มลอยล้มเหลว: ${e.message}")
         }
     }
 
-    private fun toggleEsp32Led() {
-        isEsp32LedOn = !isEsp32LedOn
-        val endpoint = if (isEsp32LedOn) "on" else "off"
-        val statusText = if (isEsp32LedOn) "เปิดไฟ (HIGH)" else "ปิดไฟ (LOW)"
-        val url = "http://$esp32IpAddress/led/$endpoint"
-
-        showToast("กำลังสั่ง $statusText ไปที่ ESP32...")
-
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val request = Request.Builder().url(url).build()
-                okHttpClient.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        showToast("ESP32: $statusText สำเร็จ ✅")
-                    } else {
-                        isEsp32LedOn = !isEsp32LedOn
-                        showToast("ESP32 ตอบกลับผิดพลาด ❌: ${response.code}")
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                isEsp32LedOn = !isEsp32LedOn
-                showToast("เชื่อมต่อ ESP32 ล้มเหลว ❌")
-            }
-        }
-    }
-
-    private fun connectWebSocket(serverUrl: String) {
-        val request = Request.Builder().url(serverUrl).build()
-        webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                try {
-                    val json = JSONObject(text)
-                    val count = json.optInt("count", 0)
-
-                    mainHandler.post {
-                        tvFingerCount?.text = count.toString()
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                mainHandler.postDelayed({ connectWebSocket(serverUrl) }, 3000)
-            }
-        })
-    }
-
-    private fun getForegroundPackageName(): String? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager?
-            val time = System.currentTimeMillis()
-            val stats = usageStatsManager?.queryUsageStats(
-                UsageStatsManager.INTERVAL_DAILY,
-                time - 1000 * 10,
-                time
-            )
-            if (!stats.isNullOrEmpty()) {
-                var currentApp: String? = null
-                var lastTimeUsed = 0L
-                for (usageStats in stats) {
-                    if (usageStats.lastTimeUsed > lastTimeUsed) {
-                        lastTimeUsed = usageStats.lastTimeUsed
-                        currentApp = usageStats.packageName
-                    }
-                }
-                if (currentApp != null) return currentApp
-            }
-        }
-
-        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        @Suppress("DEPRECATION")
-        val tasks = activityManager.getRunningTasks(1)
-        return if (tasks.isNotEmpty()) tasks[0].topActivity?.packageName else null
-    }
-
-    private fun startZoomMonitoring() {
-        stopZoomMonitoring()
-        isZoomMonitoring = true
-
-        zoomCheckRunnable = object : Runnable {
-            override fun run() {
-                if (!isZoomMonitoring) return
-
-                if (!isAppInForeground(zoomPackageName)) {
-                    stopZoomMonitoring()
-                    removeCloseZoomButton()
-                } else {
-                    zoomCheckHandler.postDelayed(this, 1000)
-                }
-            }
-        }
-        zoomCheckHandler.postDelayed(zoomCheckRunnable!!, 3000)
-    }
-
-    private fun stopZoomMonitoring() {
-        isZoomMonitoring = false
-        zoomCheckRunnable?.let { zoomCheckHandler.removeCallbacks(it) }
-    }
-
-    private fun isAppInForeground(packageName: String): Boolean {
-        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager?
-            val time = System.currentTimeMillis()
-            val stats = usageStatsManager?.queryUsageStats(
-                UsageStatsManager.INTERVAL_DAILY,
-                time - 1000 * 10,
-                time
-            )
-            if (!stats.isNullOrEmpty()) {
-                var currentApp = ""
-                var lastTimeUsed = 0L
-                for (usageStats in stats) {
-                    if (usageStats.lastTimeUsed > lastTimeUsed) {
-                        lastTimeUsed = usageStats.lastTimeUsed
-                        currentApp = usageStats.packageName
-                    }
-                }
-                return currentApp == packageName
-            }
-        }
-
-        @Suppress("DEPRECATION")
-        val tasks = activityManager.getRunningTasks(1)
-        if (tasks.isNotEmpty()) {
-            val topActivity = tasks[0].topActivity
-            return topActivity?.packageName == packageName
-        }
-        return false
-    }
-
-    private fun showCloseZoomButton() {
-        if (zoomCloseOverlayView != null) return
-
-        val closeButton = Button(this).apply {
-            text = "✕"
-            setTextColor(Color.WHITE)
-            textSize = 20f
-            setBackgroundResource(R.drawable.circle_button_bg)
-        }
-
-        val overlayParamsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
-        val closeParams = WindowManager.LayoutParams(
-            150,
-            150,
-            overlayParamsType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = 50
-            y = 150
-        }
-
-        closeButton.setOnClickListener {
-            stopZoomMonitoring()
-            removeCloseZoomButton()
-
-            // ขอให้ AccessibilityService กด Leave/End ใน Zoom ก่อน
-            // เพื่อให้ Zoom ปิดกล้องและไมค์ของตัวเองอย่างถูกต้อง
-            ZoomAccessibilityService.autoEnableMediaRequested.set(false)
-            ZoomAccessibilityService.forceLeaveRequested.set(true)
-
-            // ถ้า AccessibilityService เปิดใช้งานอยู่ จะเป็นผู้พากลับหน้าก่อนหน้า
-            // หลังยืนยัน Leave/End แล้ว ส่วนนี้เป็น fallback กรณีไม่มี service
-            mainHandler.postDelayed({
-                if (ZoomAccessibilityService.forceLeaveRequested.get()) {
-                    ZoomAccessibilityService.forceLeaveRequested.set(false)
-
-                    val targetPackage = previousForegroundPackage
-                    var launchedBack = false
-
-                    if (!targetPackage.isNullOrEmpty() &&
-                        targetPackage != zoomPackageName &&
-                        targetPackage != packageName
-                    ) {
-                        val backIntent = packageManager.getLaunchIntentForPackage(targetPackage)
-                        if (backIntent != null) {
-                            backIntent.addFlags(
-                                Intent.FLAG_ACTIVITY_NEW_TASK or
-                                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
-                            )
-                            startActivity(backIntent)
-                            launchedBack = true
-                        }
-                    }
-
-                    if (!launchedBack) {
-                        val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                            addCategory(Intent.CATEGORY_HOME)
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        }
-                        startActivity(homeIntent)
-                    }
-                }
-            }, 5500L)
-
-            showToast("กำลังออกจาก Zoom และปิดกล้อง/ไมค์...")
-        }
-
-        try {
-            windowManager.addView(closeButton, closeParams)
-            zoomCloseOverlayView = closeButton
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun removeCloseZoomButton() {
-        zoomCloseOverlayView?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        zoomCloseOverlayView = null
-    }
-
     private fun setupDraggableWindow(
         rootView: View,
-        handleView: View?,
+        handleView: View,
         params: WindowManager.LayoutParams,
         onClickAction: () -> Unit
     ) {
-        handleView?.setOnTouchListener(object : View.OnTouchListener {
+        handleView.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
             private var initialTouchX = 0f
@@ -801,10 +256,7 @@ class FloatingService : Service() {
                         return true
                     }
                     MotionEvent.ACTION_UP -> {
-                        val diffX = abs(event.rawX - initialTouchX)
-                        val diffY = abs(event.rawY - initialTouchY)
-
-                        if (diffX < 10 && diffY < 10) {
+                        if (abs(event.rawX - initialTouchX) < 10 && abs(event.rawY - initialTouchY) < 10) {
                             onClickAction()
                         }
                         return true
@@ -815,40 +267,314 @@ class FloatingService : Service() {
         })
     }
 
-    override fun onDestroy() {
-        // ถ้า Service ถูกปิดขณะอยู่ในโหมดกล้อง ให้สั่ง Pi 5 หยุดกล้องก่อน
-        if (activeStreamType == "camera") {
-            try {
-                val stopUrl = "http://$pcIpAddress:$pcPort/api/stop_button4"
-                val request = Request.Builder()
-                    .url(stopUrl)
-                    .post(RequestBody.create(null, ByteArray(0)))
-                    .build()
-                okHttpClient.newCall(request).enqueue(object : Callback {
-                    override fun onFailure(call: Call, e: IOException) {}
-                    override fun onResponse(call: Call, response: Response) {
-                        response.close()
-                    }
-                })
-            } catch (_: Exception) {
-            }
-            activeStreamType = null
+    // ===========================================================================
+    // 📌 [ปุ่มที่ 4] สตรีมภาพวิดีโอจาก Pi 5
+    // ===========================================================================
+    private fun openCameraStream() {
+        val view = floatingView ?: return
+        val params = floatingParams ?: return
+        if (isCameraStreamActive) return
+        isCameraStreamActive = true
+
+        // ขยายเต็มจอ (จำตำแหน่งปุ่มลอยไว้เพื่อคืนค่าตอนปิด)
+        savedX = params.x
+        savedY = params.y
+        params.x = 0
+        params.y = 0
+        params.width = WindowManager.LayoutParams.MATCH_PARENT
+        params.height = WindowManager.LayoutParams.MATCH_PARENT
+        params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+        windowManager.updateViewLayout(view, params)
+
+        view.findViewById<View>(R.id.mainMenuContainer).visibility = View.GONE
+        view.findViewById<View>(R.id.streamContainer).visibility = View.VISIBLE
+        tvFingerCount?.text = "0"
+
+        val streamHtml = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+                <style>
+                    html, body { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; }
+                    img { width: 100vw; height: 100vh; object-fit: cover; display: block; }
+                </style>
+            </head>
+            <body>
+                <img src="$piBaseUrl/video_feed">
+            </body>
+            </html>
+        """.trimIndent()
+
+        streamWebView?.apply {
+            onResume()
+            loadDataWithBaseURL("$piBaseUrl/", streamHtml, "text/html", "UTF-8", null)
         }
 
-        ZoomAccessibilityService.autoEnableMediaRequested.set(false)
-        ZoomAccessibilityService.forceLeaveRequested.set(true)
+        postToPi(
+            "/api/trigger_button4",
+            successMessage = "เปิดโหมดติดตามคน (PERSON) บน Pi 5 เรียบร้อย",
+            failMessage = "เชื่อมต่อ Pi 5 ไม่สำเร็จ"
+        )
+        connectWebSocket()
+        showToast("กำลังเปิดสตรีมภาพแบบเต็มจอ...")
+    }
 
-        super.onDestroy()
+    private fun closeCameraStream() {
+        if (!isCameraStreamActive) return
+        isCameraStreamActive = false
 
-        floatingView?.findViewById<WebView>(R.id.streamWebView)?.apply {
+        postToPi(
+            "/api/stop_button4",
+            successMessage = "ปิดกล้องที่ Pi 5 เรียบร้อย",
+            failMessage = "ส่งคำสั่งปิดกล้องไม่สำเร็จ"
+        )
+        disconnectWebSocket()
+
+        streamWebView?.apply {
+            stopLoading()
+            loadUrl("about:blank")
+            clearHistory()
+            onPause()
+        }
+
+        val view = floatingView ?: return
+        val params = floatingParams ?: return
+        params.x = savedX
+        params.y = savedY
+        params.width = WindowManager.LayoutParams.WRAP_CONTENT
+        params.height = WindowManager.LayoutParams.WRAP_CONTENT
+        params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+        windowManager.updateViewLayout(view, params)
+
+        view.findViewById<View>(R.id.streamContainer).visibility = View.GONE
+        view.findViewById<View>(R.id.mainMenuContainer).visibility = View.VISIBLE
+    }
+
+    private fun postToPi(path: String, successMessage: String, failMessage: String) {
+        val request = Request.Builder()
+            .url("$piBaseUrl$path")
+            .post(ByteArray(0).toRequestBody())
+            .build()
+
+        okHttpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                showToast("$failMessage: ${e.message}")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    showToast(if (it.isSuccessful) successMessage else "$failMessage (HTTP ${it.code})")
+                }
+            }
+        })
+    }
+
+    // 📌 รับจำนวนนิ้วมือจาก Pi 5 ผ่าน WebSocket (เชื่อมต่อเฉพาะตอนเปิดสตรีม)
+    private fun connectWebSocket() {
+        if (isDestroyed || !isCameraStreamActive || webSocket != null) return
+
+        val request = Request.Builder().url("ws://$pcIpAddress:$wsPort").build()
+        webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                val count = try {
+                    JSONObject(text).optInt("count", 0)
+                } catch (e: Exception) {
+                    return
+                }
+                mainHandler.post { tvFingerCount?.text = count.toString() }
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                scheduleReconnect(webSocket)
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                scheduleReconnect(webSocket)
+            }
+        })
+    }
+
+    private fun scheduleReconnect(closedSocket: WebSocket) {
+        mainHandler.post {
+            if (webSocket !== closedSocket) return@post
+            webSocket = null
+            mainHandler.postDelayed({ connectWebSocket() }, 3000L)
+        }
+    }
+
+    private fun disconnectWebSocket() {
+        webSocket?.close(1000, "Stream closed")
+        webSocket = null
+    }
+
+    // ===========================================================================
+    // 📌 [ปุ่มที่ 3] Zoom
+    // ===========================================================================
+    private fun openZoom() {
+        try {
+            previousForegroundPackage = getForegroundPackageName()
+
+            val launchIntent = packageManager.getLaunchIntentForPackage(ZoomAccessibilityService.ZOOM_PACKAGE)
+            if (launchIntent == null) {
+                showToast("ไม่พบแอป Zoom ในเครื่อง")
+                return
+            }
+            launchIntent.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+            )
+            startActivity(launchIntent)
+            showToast("กำลังเปิดหน้าหลัก Zoom...")
+
+            showCloseZoomButton()
+            startZoomMonitoring()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            showToast("ไม่สามารถเปิด Zoom ได้")
+        }
+    }
+
+    private fun startZoomMonitoring() {
+        if (isZoomMonitoring) return
+        isZoomMonitoring = true
+        zoomNotFoundCount = 0
+        mainHandler.postDelayed(zoomCheckRunnable, 1000L)
+    }
+
+    private fun stopZoomMonitoring() {
+        isZoomMonitoring = false
+        mainHandler.removeCallbacks(zoomCheckRunnable)
+    }
+
+    private fun getForegroundPackageName(): String? {
+        val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return null
+        val now = System.currentTimeMillis()
+        return usageStatsManager
+            .queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 10_000L, now)
+            ?.maxByOrNull { it.lastTimeUsed }
+            ?.packageName
+    }
+
+    // 📌 แสดงปุ่มกากบาทสีแดงบนหน้าจอ Zoom
+    private fun showCloseZoomButton() {
+        if (isDestroyed || zoomCloseOverlayView?.isAttachedToWindow == true) return
+
+        val density = resources.displayMetrics.density
+        val buttonSizePx = (60 * density).toInt()
+
+        val closeButton = Button(this).apply {
+            text = "✕"
+            setTextColor(Color.WHITE)
+            textSize = 24f
+            typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#FF1744"))
+                setStroke((3 * density).toInt(), Color.WHITE)
+            }
+            setPadding(0, 0, 0, 0)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            elevation = 999f
+            setOnClickListener { leaveZoom() }
+        }
+
+        val closeParams = WindowManager.LayoutParams(
+            buttonSizePx,
+            buttonSizePx,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            x = (20 * density).toInt()
+            y = (40 * density).toInt()
+        }
+
+        try {
+            windowManager.addView(closeButton, closeParams)
+            zoomCloseOverlayView = closeButton
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun removeCloseZoomButton() {
+        zoomCloseOverlayView?.let { view ->
+            try {
+                if (view.isAttachedToWindow) windowManager.removeView(view)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        zoomCloseOverlayView = null
+    }
+
+    private fun leaveZoom() {
+        stopZoomMonitoring()
+        removeCloseZoomButton()
+
+        // ให้ AccessibilityService กด Leave ให้ แล้วรอสัญญาณ ACTION_ZOOM_LEAVE_FINISHED ค่อยกลับหน้าเดิม
+        if (ZoomAccessibilityService.requestForceLeave()) {
+            showToast("กำลังออกจาก Zoom...")
+        } else {
+            showToast("ยังไม่ได้เปิด Accessibility Service จึงกด Leave อัตโนมัติไม่ได้")
+            returnToPreviousApp()
+        }
+    }
+
+    private fun returnToPreviousApp() {
+        val target = previousForegroundPackage
+        previousForegroundPackage = null
+
+        val backIntent = target
+            ?.takeIf { it != ZoomAccessibilityService.ZOOM_PACKAGE && it != packageName }
+            ?.let { packageManager.getLaunchIntentForPackage(it) }
+            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            ?: Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_HOME)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        try {
+            startActivity(backIntent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    override fun onDestroy() {
+        isDestroyed = true
+        mainHandler.removeCallbacksAndMessages(null)
+
+        try {
+            unregisterReceiver(zoomStateReceiver)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        if (isCameraStreamActive) {
+            isCameraStreamActive = false
+            postToPi("/api/stop_button4", "ปิดกล้องที่ Pi 5 เรียบร้อย", "ส่งคำสั่งปิดกล้องไม่สำเร็จ")
+        }
+        disconnectWebSocket()
+        stopZoomMonitoring()
+        removeCloseZoomButton()
+
+        streamWebView?.apply {
             stopLoading()
             (parent as? ViewGroup)?.removeView(this)
             destroy()
         }
+        streamWebView = null
 
-        stopZoomMonitoring()
-        webSocket?.close(1000, "Service Destroyed")
-        removeCloseZoomButton()
         floatingView?.let {
             try {
                 windowManager.removeView(it)
@@ -857,5 +583,8 @@ class FloatingService : Service() {
             }
         }
         floatingView = null
+        floatingParams = null
+
+        super.onDestroy()
     }
 }

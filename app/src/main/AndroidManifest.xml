@@ -18,10 +18,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
-    <!-- 📌 สิทธิ์ Foreground Service สำหรับ Camera และ Microphone (สำหรับ Android 14+) -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-
     <!-- 📌 สิทธิ์แจ้งเตือนสำหรับ Android 13+ (จำเป็นมากสำหรับการรัน Foreground Service) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -33,27 +29,6 @@
 
     <!-- 📌 สิทธิ์สำหรับการตรวจจับ Foreground App (เช็กว่าผู้ใช้อยู่ใน Zoom หรือไม่) -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
-
-    <!-- สิทธิ์กล้อง ไมค์ และระบบเสียง -->
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-
-    <!-- สิทธิ์สำหรับสั่งปิดแอปอื่นในระบบ (Force Stop/Kill Process) -->
-    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
-
-    <!-- Declarations ป้องกันการบล็อกบนอุปกรณ์ที่ไม่มีกล้องฮาร์ดแวร์ -->
-    <uses-feature
-        android:name="android.hardware.camera"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.camera.autofocus"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.microphone"
-        android:required="false" />
 
     <application
         android:allowBackup="true"
