@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -51,13 +52,23 @@ class FloatingService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val ZOOM_CHECK_INTERVAL_MS = 2000L
         private const val ZOOM_MAX_NOT_FOUND = 10 // ~20 วินาที
-    }
+        private const val WS_RECONNECT_DELAY_MS = 3000L
+        private const val TAG = "FloatingService"
 
-    // 📌 IP Address และ Port ของ Raspberry Pi 5
-    private val pcIpAddress = "192.168.100.245"
-    private val pcPort = 5000
-    private val wsPort = 8765
-    private val piBaseUrl = "http://$pcIpAddress:$pcPort"
+        // 📌 IP Address และ Port ของ Raspberry Pi 5
+        private const val PI_HOST = "192.168.100.245"
+        private const val PI_HTTP_PORT = 5000
+        private const val PI_WS_PORT = 8765
+        private const val PI_BASE_URL = "http://$PI_HOST:$PI_HTTP_PORT"
+
+        // flags ของหน้าต่างปุ่มลอย (ย่อ) และของโหมดสตรีมเต็มจอ
+        private const val FLAGS_FLOATING = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+        private const val FLAGS_FULLSCREEN = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+    }
 
     private lateinit var windowManager: WindowManager
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -159,8 +170,6 @@ class FloatingService : Service() {
         }
     }
 
-    private fun overlayWindowType(): Int = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-
     // ===========================================================================
     // 📌 ปุ่มลอยหลัก
     // ===========================================================================
@@ -181,10 +190,8 @@ class FloatingService : Service() {
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
-                overlayWindowType(),
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                FLAGS_FLOATING,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
@@ -218,7 +225,7 @@ class FloatingService : Service() {
             view.findViewById<View>(R.id.btn4).setOnClickListener { openCameraStream() }
             view.findViewById<View>(R.id.btnCloseStream).setOnClickListener { closeCameraStream() }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(TAG, e)
             floatingView = null
             floatingParams = null
             showToast("สร้างปุ่มลอยล้มเหลว: ${e.message}")
@@ -252,7 +259,7 @@ class FloatingService : Service() {
                         try {
                             windowManager.updateViewLayout(rootView, params)
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            Log.w(TAG, e)
                         }
                         return true
                     }
@@ -284,9 +291,7 @@ class FloatingService : Service() {
         params.y = 0
         params.width = WindowManager.LayoutParams.MATCH_PARENT
         params.height = WindowManager.LayoutParams.MATCH_PARENT
-        params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+        params.flags = FLAGS_FULLSCREEN
         windowManager.updateViewLayout(view, params)
 
         view.findViewById<View>(R.id.mainMenuContainer).visibility = View.GONE
@@ -304,14 +309,14 @@ class FloatingService : Service() {
                 </style>
             </head>
             <body>
-                <img src="$piBaseUrl/video_feed">
+                <img src="$PI_BASE_URL/video_feed">
             </body>
             </html>
         """.trimIndent()
 
         streamWebView?.apply {
             onResume()
-            loadDataWithBaseURL("$piBaseUrl/", streamHtml, "text/html", "UTF-8", null)
+            loadDataWithBaseURL("$PI_BASE_URL/", streamHtml, "text/html", "UTF-8", null)
         }
 
         postToPi(
@@ -347,9 +352,7 @@ class FloatingService : Service() {
         params.y = savedY
         params.width = WindowManager.LayoutParams.WRAP_CONTENT
         params.height = WindowManager.LayoutParams.WRAP_CONTENT
-        params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+        params.flags = FLAGS_FLOATING
         windowManager.updateViewLayout(view, params)
 
         view.findViewById<View>(R.id.streamContainer).visibility = View.GONE
@@ -358,7 +361,7 @@ class FloatingService : Service() {
 
     private fun postToPi(path: String, successMessage: String, failMessage: String) {
         val request = Request.Builder()
-            .url("$piBaseUrl$path")
+            .url("$PI_BASE_URL$path")
             .post(ByteArray(0).toRequestBody())
             .build()
 
@@ -379,7 +382,7 @@ class FloatingService : Service() {
     private fun connectWebSocket() {
         if (isDestroyed || !isCameraStreamActive || webSocket != null) return
 
-        val request = Request.Builder().url("ws://$pcIpAddress:$wsPort").build()
+        val request = Request.Builder().url("ws://$PI_HOST:$PI_WS_PORT").build()
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val count = try {
@@ -404,7 +407,7 @@ class FloatingService : Service() {
         mainHandler.post {
             if (webSocket !== closedSocket) return@post
             webSocket = null
-            mainHandler.postDelayed({ connectWebSocket() }, 3000L)
+            mainHandler.postDelayed({ connectWebSocket() }, WS_RECONNECT_DELAY_MS)
         }
     }
 
@@ -436,7 +439,7 @@ class FloatingService : Service() {
             showCloseZoomButton()
             startZoomMonitoring()
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(TAG, e)
             showToast("ไม่สามารถเปิด Zoom ได้")
         }
     }
@@ -489,7 +492,7 @@ class FloatingService : Service() {
         val closeParams = WindowManager.LayoutParams(
             buttonSizePx,
             buttonSizePx,
-            overlayWindowType(),
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -504,7 +507,7 @@ class FloatingService : Service() {
             windowManager.addView(closeButton, closeParams)
             zoomCloseOverlayView = closeButton
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(TAG, e)
         }
     }
 
@@ -513,7 +516,7 @@ class FloatingService : Service() {
             try {
                 if (view.isAttachedToWindow) windowManager.removeView(view)
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.w(TAG, e)
             }
         }
         zoomCloseOverlayView = null
@@ -547,7 +550,7 @@ class FloatingService : Service() {
         try {
             startActivity(backIntent)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(TAG, e)
         }
     }
 
@@ -558,7 +561,7 @@ class FloatingService : Service() {
         try {
             unregisterReceiver(zoomStateReceiver)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w(TAG, e)
         }
 
         if (isCameraStreamActive) {
@@ -580,7 +583,7 @@ class FloatingService : Service() {
             try {
                 windowManager.removeView(it)
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.w(TAG, e)
             }
         }
         floatingView = null

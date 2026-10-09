@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -178,7 +179,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "เปิดใช้งานปุ่มลอยเรียบร้อย!", Toast.LENGTH_SHORT).show()
             finish()
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("MainActivity", "เริ่ม FloatingService ไม่สำเร็จ", e)
             Toast.makeText(this, "ไม่สามารถเริ่มบริการปุ่มลอยได้: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
         }
     }
