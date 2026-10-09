@@ -167,6 +167,7 @@ class FloatingService : Service() {
     private fun initFloatingView() {
         if (!Settings.canDrawOverlays(this)) {
             showToast("กรุณาเปิดสิทธิ์ Display over other apps")
+            stopSelf()
             return
         }
 

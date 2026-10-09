@@ -80,7 +80,7 @@ class MainActivity : AppCompatActivity() {
         if (isPermissionRequesting) return
 
         // Step 1: เช็กสิทธิ์ Overlay
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+        if (!Settings.canDrawOverlays(this)) {
             requestOverlayPermission()
             return
         }
@@ -108,48 +108,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestOverlayPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            isPermissionRequesting = true
-            Toast.makeText(this, "กรุณาเปิดสิทธิ์ 'แสดงทับแอปอื่น'", Toast.LENGTH_SHORT).show()
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
-            )
-            overlayPermissionLauncher.launch(intent)
-        }
+        isPermissionRequesting = true
+        Toast.makeText(this, "กรุณาเปิดสิทธิ์ 'แสดงทับแอปอื่น'", Toast.LENGTH_SHORT).show()
+        val intent = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:$packageName")
+        )
+        overlayPermissionLauncher.launch(intent)
     }
 
     private fun requestUsageStatsPermission() {
         isPermissionRequesting = true
         Toast.makeText(this, "กรุณาค้นหาแอปแล้วเปิดสิทธิ์ 'การเข้าถึงข้อมูลการใช้งาน'", Toast.LENGTH_LONG).show()
-        val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                data = Uri.parse("package:$packageName")
-            }
-        }
+        val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+            .setData(Uri.parse("package:$packageName"))
         try {
             usageStatsPermissionLauncher.launch(intent)
         } catch (e: Exception) {
-            val fallbackIntent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-            usageStatsPermissionLauncher.launch(fallbackIntent)
+            usageStatsPermissionLauncher.launch(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun hasUsageStatsPermission(): Boolean {
         val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
         val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            appOps.unsafeCheckOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                packageName
-            )
+            appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
         } else {
-            @Suppress("DEPRECATION")
-            appOps.checkOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                packageName
-            )
+            appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName)
         }
         return mode == AppOpsManager.MODE_ALLOWED
     }
@@ -166,43 +152,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun hasIgnoreBatteryOptimization(): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            return powerManager.isIgnoringBatteryOptimizations(packageName)
-        }
-        return true
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return powerManager.isIgnoringBatteryOptimizations(packageName)
     }
 
     @SuppressLint("BatteryLife")
     private fun requestIgnoreBatteryOptimization() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            isPermissionRequesting = true
-            Toast.makeText(
-                this,
-                "กรุณากด 'อนุญาต' เพื่อไม่ให้ระบบปิดปุ่มลอยเอง",
-                Toast.LENGTH_LONG
-            ).show()
-            val intent = Intent(
-                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                Uri.parse("package:$packageName")
-            )
-            try {
-                batteryOptimizationLauncher.launch(intent)
-            } catch (e: Exception) {
-                val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                batteryOptimizationLauncher.launch(fallbackIntent)
-            }
+        isPermissionRequesting = true
+        Toast.makeText(this, "กรุณากด 'อนุญาต' เพื่อไม่ให้ระบบปิดปุ่มลอยเอง", Toast.LENGTH_LONG).show()
+        val intent = Intent(
+            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            Uri.parse("package:$packageName")
+        )
+        try {
+            batteryOptimizationLauncher.launch(intent)
+        } catch (e: Exception) {
+            batteryOptimizationLauncher.launch(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         }
     }
 
     private fun startFloatingService() {
         val serviceIntent = Intent(this, FloatingService::class.java)
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ContextCompat.startForegroundService(this, serviceIntent)
-            } else {
-                startService(serviceIntent)
-            }
+            ContextCompat.startForegroundService(this, serviceIntent)
             Toast.makeText(this, "เปิดใช้งานปุ่มลอยเรียบร้อย!", Toast.LENGTH_SHORT).show()
             finish()
         } catch (e: Exception) {
