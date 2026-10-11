@@ -1,5 +1,6 @@
 package com.example.pcoverlaycontrol
 
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -37,6 +38,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.toColorInt
+import androidx.core.view.isVisible
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
@@ -168,7 +171,7 @@ class FloatingService : Service() {
 
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("PC Overlay Control")
-            .setContentText("ปุ่มลอยกำลังทำงาน...")
+            .setContentText(getString(R.string.notification_text))
             .setSmallIcon(R.drawable.ic_notification)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
@@ -190,9 +193,10 @@ class FloatingService : Service() {
     // ===========================================================================
     // 📌 ปุ่มลอยหลัก
     // ===========================================================================
+    @SuppressLint("InflateParams") // หน้าต่าง overlay ไม่มี parent ให้ผูก จึงต้องส่ง null
     private fun initFloatingView() {
         if (!Settings.canDrawOverlays(this)) {
-            showToast("กรุณาเปิดสิทธิ์ Display over other apps")
+            showToast(getString(R.string.toast_need_overlay))
             stopSelf()
             return
         }
@@ -224,8 +228,7 @@ class FloatingService : Service() {
 
             val controlButtonsGroup = view.findViewById<View>(R.id.controlButtonsGroup)
             setupDraggableWindow(view, view.findViewById(R.id.btnMain), params) {
-                controlButtonsGroup.visibility =
-                    if (controlButtonsGroup.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                controlButtonsGroup.isVisible = !controlButtonsGroup.isVisible
             }
 
             tvFingerCount = view.findViewById(R.id.tvFingerCount)
@@ -249,7 +252,7 @@ class FloatingService : Service() {
             addedView?.let { runCatching { windowManager.removeView(it) } }
             floatingView = null
             floatingParams = null
-            showToast("สร้างปุ่มลอยล้มเหลว: ${e.message}")
+            showToast(getString(R.string.toast_overlay_create_failed, e.message))
         }
     }
 
@@ -286,6 +289,7 @@ class FloatingService : Service() {
                     }
                     MotionEvent.ACTION_UP -> {
                         if (abs(event.rawX - initialTouchX) < 10 && abs(event.rawY - initialTouchY) < 10) {
+                            v?.performClick()
                             onClickAction()
                         }
                         return true
@@ -321,7 +325,7 @@ class FloatingService : Service() {
         tvFingerCount?.text = "0"
 
         startStream()
-        showToast("กำลังเปิดสตรีมภาพแบบเต็มจอ...")
+        showToast(getString(R.string.toast_opening_stream))
     }
 
     // โหลดภาพสตรีม สั่ง Pi เปิดโหมดติดตามคน และเชื่อม WebSocket (ใช้ IP ปัจจุบันจากการตั้งค่า)
@@ -350,8 +354,8 @@ class FloatingService : Service() {
 
         postToPi(
             "/api/trigger_button4",
-            successMessage = "เปิดโหมดติดตามคน (PERSON) บน Pi 5 เรียบร้อย",
-            failMessage = "เชื่อมต่อ Pi 5 ไม่สำเร็จ"
+            successMessage = getString(R.string.toast_tracking_on),
+            failMessage = getString(R.string.toast_pi_connect_failed)
         )
         connectWebSocket()
     }
@@ -368,7 +372,7 @@ class FloatingService : Service() {
         // กดค้างที่ตัวเลขนิ้วมือ: ถ้าเคยตั้ง PIN ไว้ให้ถาม PIN ก่อน ถ้ายังไม่เคยให้ตั้ง PIN พร้อมกับ IP
         tvFingerCount?.setOnLongClickListener {
             if (SystemClock.elapsedRealtime() < pinLockedUntil) {
-                showToast("ใส่ PIN ผิดหลายครั้ง กรุณารอสักครู่")
+                showToast(getString(R.string.toast_pin_locked_wait))
                 return@setOnLongClickListener true
             }
             etPin.text.clear()
@@ -390,9 +394,9 @@ class FloatingService : Service() {
                 failedPinAttempts = 0
                 pinLockedUntil = SystemClock.elapsedRealtime() + PIN_LOCK_MS
                 hideHostSettings()
-                showToast("ใส่ PIN ผิดหลายครั้ง ล็อกชั่วคราว")
+                showToast(getString(R.string.toast_pin_locked))
             } else {
-                showToast("PIN ไม่ถูกต้อง")
+                showToast(getString(R.string.toast_pin_wrong))
             }
         }
 
@@ -401,14 +405,14 @@ class FloatingService : Service() {
         view.findViewById<View>(R.id.btnSaveHost).setOnClickListener {
             val host = etHost.text.toString().trim()
             if (!PiSettings.isValidHost(host)) {
-                showToast("IP หรือชื่อโฮสต์ไม่ถูกต้อง")
+                showToast(getString(R.string.toast_host_invalid))
                 return@setOnClickListener
             }
 
             val newPin = etNewPin.text.toString().trim()
             val mustSetPin = !piSettings.hasPin
             if ((mustSetPin || newPin.isNotEmpty()) && !PiSettings.isValidPin(newPin)) {
-                showToast("PIN ต้องเป็นตัวเลข 4-8 หลัก")
+                showToast(getString(R.string.toast_pin_format))
                 return@setOnClickListener
             }
             if (newPin.isNotEmpty()) piSettings.setPin(newPin)
@@ -416,7 +420,7 @@ class FloatingService : Service() {
             val oldHost = piSettings.host
             piSettings.host = host
             hideHostSettings()
-            showToast("บันทึก IP: $host")
+            showToast(getString(R.string.toast_host_saved, host))
             if (host != oldHost) restartStream(oldHost)
         }
     }
@@ -479,8 +483,8 @@ class FloatingService : Service() {
 
         postToPi(
             "/api/stop_button4",
-            successMessage = "ปิดกล้องที่ Pi 5 เรียบร้อย",
-            failMessage = "ส่งคำสั่งปิดกล้องไม่สำเร็จ"
+            successMessage = getString(R.string.toast_camera_stopped),
+            failMessage = getString(R.string.toast_camera_stop_failed)
         )
         disconnectWebSocket()
 
@@ -594,7 +598,7 @@ class FloatingService : Service() {
 
             val launchIntent = packageManager.getLaunchIntentForPackage(ZoomAccessibilityService.ZOOM_PACKAGE)
             if (launchIntent == null) {
-                showToast("ไม่พบแอป Zoom ในเครื่อง")
+                showToast(getString(R.string.toast_zoom_missing))
                 return
             }
             launchIntent.addFlags(
@@ -603,13 +607,13 @@ class FloatingService : Service() {
                         Intent.FLAG_ACTIVITY_CLEAR_TOP
             )
             startActivity(launchIntent)
-            showToast("กำลังเปิดหน้าหลัก Zoom...")
+            showToast(getString(R.string.toast_opening_zoom))
 
             showCloseZoomButton()
             startZoomMonitoring()
         } catch (e: Exception) {
             Log.w(TAG, e)
-            showToast("ไม่สามารถเปิด Zoom ได้")
+            showToast(getString(R.string.toast_zoom_failed))
         }
     }
 
@@ -662,7 +666,7 @@ class FloatingService : Service() {
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#FF1744"))
+                setColor("#FF1744".toColorInt())
                 setStroke((3 * density).toInt(), Color.WHITE)
             }
             setPadding(0, 0, 0, 0)
@@ -711,9 +715,9 @@ class FloatingService : Service() {
 
         // ให้ AccessibilityService กด Leave ให้ แล้วรอสัญญาณ ACTION_ZOOM_LEAVE_FINISHED ค่อยกลับหน้าเดิม
         if (ZoomAccessibilityService.requestForceLeave()) {
-            showToast("กำลังออกจาก Zoom...")
+            showToast(getString(R.string.toast_leaving_zoom))
         } else {
-            showToast("ยังไม่ได้เปิด Accessibility Service จึงกด Leave อัตโนมัติไม่ได้")
+            showToast(getString(R.string.toast_need_accessibility))
             returnToPreviousApp()
         }
     }
@@ -749,7 +753,7 @@ class FloatingService : Service() {
 
         if (isCameraStreamActive) {
             isCameraStreamActive = false
-            postToPi("/api/stop_button4", "ปิดกล้องที่ Pi 5 เรียบร้อย", "ส่งคำสั่งปิดกล้องไม่สำเร็จ")
+            postToPi("/api/stop_button4", getString(R.string.toast_camera_stopped), getString(R.string.toast_camera_stop_failed))
         }
         disconnectWebSocket()
         stopZoomMonitoring()

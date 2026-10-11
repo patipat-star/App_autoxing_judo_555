@@ -1,6 +1,7 @@
 package com.example.pcoverlaycontrol
 
 import android.content.Context
+import androidx.core.content.edit
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.security.MessageDigest
 
@@ -39,7 +40,7 @@ class PiSettings(context: Context) {
 
     var host: String
         get() = prefs.getString(KEY_HOST, null) ?: DEFAULT_HOST
-        set(value) = prefs.edit().putString(KEY_HOST, value).apply()
+        set(value) = prefs.edit { putString(KEY_HOST, value) }
 
     val hasPin: Boolean get() = prefs.getString(KEY_PIN_HASH, null) != null
 
@@ -47,7 +48,7 @@ class PiSettings(context: Context) {
         prefs.getString(KEY_PIN_HASH, null) == hashPin(pin)
 
     fun setPin(pin: String) {
-        prefs.edit().putString(KEY_PIN_HASH, hashPin(pin)).apply()
+        prefs.edit { putString(KEY_PIN_HASH, hashPin(pin)) }
     }
 
     val baseUrl: String get() = baseUrlFor(host)

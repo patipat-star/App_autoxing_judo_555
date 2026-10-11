@@ -13,10 +13,38 @@
     <string name="settings_pin_hint">PIN</string>
     <string name="settings_host_title">IP ของ Raspberry Pi 5</string>
     <string name="settings_host_hint">เช่น 192.168.100.245</string>
-    <string name="settings_new_pin_hint">PIN ใหม่ 4-8 หลัก (เว้นว่าง = ไม่เปลี่ยน)</string>
-    <string name="settings_first_pin_hint">ตั้ง PIN เจ้าของ 4-8 หลัก (จำเป็น)</string>
+    <string name="settings_new_pin_hint">PIN ใหม่ 4–8 หลัก (เว้นว่าง = ไม่เปลี่ยน)</string>
+    <string name="settings_first_pin_hint">ตั้ง PIN เจ้าของ 4–8 หลัก (จำเป็น)</string>
     <string name="settings_ok">ตกลง</string>
     <string name="settings_save">บันทึก</string>
     <string name="settings_cancel">ยกเลิก</string>
     <string name="settings_reset">ค่าเริ่มต้น</string>
+
+    <!-- ข้อความแจ้งเตือน (Toast) -->
+    <string name="notification_text">ปุ่มลอยกำลังทำงาน…</string>
+    <string name="toast_need_overlay">กรุณาเปิดสิทธิ์ Display over other apps</string>
+    <string name="toast_opening_stream">กำลังเปิดสตรีมภาพแบบเต็มจอ…</string>
+    <string name="toast_tracking_on">เปิดโหมดติดตามคน (PERSON) บน Pi 5 เรียบร้อย</string>
+    <string name="toast_pi_connect_failed">เชื่อมต่อ Pi 5 ไม่สำเร็จ</string>
+    <string name="toast_pin_locked_wait">ใส่ PIN ผิดหลายครั้ง กรุณารอสักครู่</string>
+    <string name="toast_pin_locked">ใส่ PIN ผิดหลายครั้ง ล็อกชั่วคราว</string>
+    <string name="toast_pin_wrong">PIN ไม่ถูกต้อง</string>
+    <string name="toast_host_invalid">IP หรือชื่อโฮสต์ไม่ถูกต้อง</string>
+    <string name="toast_pin_format">PIN ต้องเป็นตัวเลข 4–8 หลัก</string>
+    <string name="toast_camera_stopped">ปิดกล้องที่ Pi 5 เรียบร้อย</string>
+    <string name="toast_camera_stop_failed">ส่งคำสั่งปิดกล้องไม่สำเร็จ</string>
+    <string name="toast_zoom_missing">ไม่พบแอป Zoom ในเครื่อง</string>
+    <string name="toast_opening_zoom">กำลังเปิดหน้าหลัก Zoom…</string>
+    <string name="toast_zoom_failed">ไม่สามารถเปิด Zoom ได้</string>
+    <string name="toast_leaving_zoom">กำลังออกจาก Zoom…</string>
+    <string name="toast_need_accessibility">ยังไม่ได้เปิด Accessibility Service จึงกด Leave อัตโนมัติไม่ได้</string>
+    <string name="toast_overlay_required">ต้องเปิดสิทธิ์ \'แสดงทับแอปอื่น\' จึงจะใช้ปุ่มลอยได้</string>
+    <string name="toast_ask_overlay">กรุณาเปิดสิทธิ์ \'แสดงทับแอปอื่น\'</string>
+    <string name="toast_overlay_screen_missing">เปิดหน้าตั้งค่าสิทธิ์ \'แสดงทับแอปอื่น\' ไม่ได้ กรุณาเปิดเองในตั้งค่าเครื่อง</string>
+    <string name="toast_ask_usage">กรุณาค้นหาแอปแล้วเปิดสิทธิ์ \'การเข้าถึงข้อมูลการใช้งาน\'</string>
+    <string name="toast_ask_battery">กรุณากด \'อนุญาต\' เพื่อไม่ให้ระบบปิดปุ่มลอยเอง</string>
+    <string name="toast_overlay_started">เปิดใช้งานปุ่มลอยเรียบร้อย!</string>
+    <string name="toast_overlay_create_failed">สร้างปุ่มลอยล้มเหลว: %1$s</string>
+    <string name="toast_host_saved">บันทึก IP: %1$s</string>
+    <string name="toast_service_start_failed">ไม่สามารถเริ่มบริการปุ่มลอยได้: %1$s</string>
 </resources>

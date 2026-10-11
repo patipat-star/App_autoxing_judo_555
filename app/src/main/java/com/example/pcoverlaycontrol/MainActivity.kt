@@ -6,7 +6,6 @@ import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -18,6 +17,7 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 
 class MainActivity : AppCompatActivity() {
 
@@ -41,7 +41,7 @@ class MainActivity : AppCompatActivity() {
         if (Settings.canDrawOverlays(this)) {
             checkNextPermission()
         } else {
-            Toast.makeText(this, "ต้องเปิดสิทธิ์ 'แสดงทับแอปอื่น' จึงจะใช้ปุ่มลอยได้", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.toast_overlay_required), Toast.LENGTH_LONG).show()
             finish()
         }
     }
@@ -120,10 +120,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestOverlayPermission() {
         isPermissionRequesting = true
-        Toast.makeText(this, "กรุณาเปิดสิทธิ์ 'แสดงทับแอปอื่น'", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.toast_ask_overlay), Toast.LENGTH_SHORT).show()
         val intent = Intent(
             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            Uri.parse("package:$packageName")
+            "package:$packageName".toUri()
         )
         try {
             overlayPermissionLauncher.launch(intent)
@@ -131,16 +131,16 @@ class MainActivity : AppCompatActivity() {
             // ROM บางรุ่น (เช่นของหุ่นยนต์) ไม่มีหน้าตั้งค่านี้: ไม่ให้แอปล้ม
             Log.w(TAG, e)
             isPermissionRequesting = false
-            Toast.makeText(this, "เปิดหน้าตั้งค่าสิทธิ์ 'แสดงทับแอปอื่น' ไม่ได้ กรุณาเปิดเองในตั้งค่าเครื่อง", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.toast_overlay_screen_missing), Toast.LENGTH_LONG).show()
             finish()
         }
     }
 
     private fun requestUsageStatsPermission() {
         isPermissionRequesting = true
-        Toast.makeText(this, "กรุณาค้นหาแอปแล้วเปิดสิทธิ์ 'การเข้าถึงข้อมูลการใช้งาน'", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, getString(R.string.toast_ask_usage), Toast.LENGTH_LONG).show()
         val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-            .setData(Uri.parse("package:$packageName"))
+            .setData("package:$packageName".toUri())
         launchOptional(usageStatsPermissionLauncher, intent, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
     }
 
@@ -198,10 +198,10 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("BatteryLife")
     private fun requestIgnoreBatteryOptimization() {
         isPermissionRequesting = true
-        Toast.makeText(this, "กรุณากด 'อนุญาต' เพื่อไม่ให้ระบบปิดปุ่มลอยเอง", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, getString(R.string.toast_ask_battery), Toast.LENGTH_LONG).show()
         val intent = Intent(
             Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-            Uri.parse("package:$packageName")
+            "package:$packageName".toUri()
         )
         launchOptional(batteryOptimizationLauncher, intent, Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
     }
@@ -210,11 +210,11 @@ class MainActivity : AppCompatActivity() {
         val serviceIntent = Intent(this, FloatingService::class.java)
         try {
             ContextCompat.startForegroundService(this, serviceIntent)
-            Toast.makeText(this, "เปิดใช้งานปุ่มลอยเรียบร้อย!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.toast_overlay_started), Toast.LENGTH_SHORT).show()
             finish()
         } catch (e: Exception) {
             Log.e(TAG, "เริ่ม FloatingService ไม่สำเร็จ", e)
-            Toast.makeText(this, "ไม่สามารถเริ่มบริการปุ่มลอยได้: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.toast_service_start_failed, e.localizedMessage), Toast.LENGTH_LONG).show()
         }
     }
 }
