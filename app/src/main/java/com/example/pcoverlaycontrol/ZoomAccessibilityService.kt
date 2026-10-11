@@ -25,17 +25,6 @@ class ZoomAccessibilityService : AccessibilityService() {
         // รอให้ Pop-up ยืนยันขึ้นก่อน ค่อยหาปุ่มยืนยัน (กันกดซ้ำปุ่มเดิมบน toolbar)
         private const val CONFIRM_DELAY_MS = 400L
 
-        // ข้อความภาษาอังกฤษต้องตรงเป็น "คำ" (กัน "End" ไปตรงกับ Calendar / Send / Attendees)
-        // ภาษาไทยไม่มีช่องว่างคั่นคำ จึงใช้ contains
-        private fun matchesTarget(value: String?, target: String): Boolean {
-            if (value.isNullOrBlank()) return false
-            return if (target.all { it.code < 128 }) {
-                Regex("""\b${Regex.escape(target)}\b""", RegexOption.IGNORE_CASE).containsMatchIn(value)
-            } else {
-                value.contains(target)
-            }
-        }
-
         @Volatile
         var isZoomInForeground: Boolean = false
             private set

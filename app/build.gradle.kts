@@ -41,4 +41,6 @@ dependencies {
 
     // HTTP + WebSocket สำหรับคุยกับ Raspberry Pi 5
     implementation(libs.okhttp)
+
+    testImplementation(libs.junit)
 }

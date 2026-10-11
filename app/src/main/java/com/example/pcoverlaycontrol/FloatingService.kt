@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
@@ -60,6 +61,8 @@ class FloatingService : Service() {
         private const val TAG = "FloatingService"
 
         private const val WS_PING_INTERVAL_SECONDS = 10L
+        private const val MAX_PIN_ATTEMPTS = 5
+        private const val PIN_LOCK_MS = 30_000L
         private const val USAGE_EVENTS_WINDOW_MS = 5 * 60 * 1000L
 
         // flags ของหน้าต่างปุ่มลอย (ย่อ) และของโหมดสตรีมเต็มจอ
@@ -97,6 +100,8 @@ class FloatingService : Service() {
     private var tvFingerCount: TextView? = null
     private var webSocket: WebSocket? = null
     private var isCameraStreamActive = false
+    private var failedPinAttempts = 0
+    private var pinLockedUntil = 0L
     private var webSocketLost = false // WebSocket เคยหลุด: เมื่อต่อใหม่ได้ต้องโหลดภาพสตรีมใหม่
 
     // 📌 Zoom (ปุ่ม 1)
@@ -164,7 +169,7 @@ class FloatingService : Service() {
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("PC Overlay Control")
             .setContentText("ปุ่มลอยกำลังทำงาน...")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .build()
@@ -356,14 +361,39 @@ class FloatingService : Service() {
     // เปิดโดย "กดค้าง" ที่ตัวเลขจำนวนนิ้วมือมุมซ้ายบนในหน้าสตรีม
     // ===========================================================================
     private fun setupHostSettings(view: View) {
+        val etPin = view.findViewById<EditText>(R.id.etPin)
         val etHost = view.findViewById<EditText>(R.id.etPiHost)
+        val etNewPin = view.findViewById<EditText>(R.id.etNewPin)
 
+        // กดค้างที่ตัวเลขนิ้วมือ: ถ้าเคยตั้ง PIN ไว้ให้ถาม PIN ก่อน ถ้ายังไม่เคยให้ตั้ง PIN พร้อมกับ IP
         tvFingerCount?.setOnLongClickListener {
-            etHost.setText(piSettings.host)
-            etHost.setSelection(etHost.text.length)
+            if (SystemClock.elapsedRealtime() < pinLockedUntil) {
+                showToast("ใส่ PIN ผิดหลายครั้ง กรุณารอสักครู่")
+                return@setOnLongClickListener true
+            }
+            etPin.text.clear()
+            etNewPin.text.clear()
             setStreamWindowFocusable(true)
             view.findViewById<View>(R.id.settingsPanel).visibility = View.VISIBLE
+            if (piSettings.hasPin) showPinSection(view) else showHostSection(view, firstTime = true)
             true
+        }
+
+        view.findViewById<View>(R.id.btnPinCancel).setOnClickListener { hideHostSettings() }
+        view.findViewById<View>(R.id.btnPinOk).setOnClickListener {
+            val pin = etPin.text.toString()
+            etPin.text.clear()
+            if (piSettings.checkPin(pin)) {
+                failedPinAttempts = 0
+                showHostSection(view, firstTime = false)
+            } else if (++failedPinAttempts >= MAX_PIN_ATTEMPTS) {
+                failedPinAttempts = 0
+                pinLockedUntil = SystemClock.elapsedRealtime() + PIN_LOCK_MS
+                hideHostSettings()
+                showToast("ใส่ PIN ผิดหลายครั้ง ล็อกชั่วคราว")
+            } else {
+                showToast("PIN ไม่ถูกต้อง")
+            }
         }
 
         view.findViewById<View>(R.id.btnCancelHost).setOnClickListener { hideHostSettings() }
@@ -374,6 +404,15 @@ class FloatingService : Service() {
                 showToast("IP หรือชื่อโฮสต์ไม่ถูกต้อง")
                 return@setOnClickListener
             }
+
+            val newPin = etNewPin.text.toString().trim()
+            val mustSetPin = !piSettings.hasPin
+            if ((mustSetPin || newPin.isNotEmpty()) && !PiSettings.isValidPin(newPin)) {
+                showToast("PIN ต้องเป็นตัวเลข 4-8 หลัก")
+                return@setOnClickListener
+            }
+            if (newPin.isNotEmpty()) piSettings.setPin(newPin)
+
             val oldHost = piSettings.host
             piSettings.host = host
             hideHostSettings()
@@ -382,13 +421,35 @@ class FloatingService : Service() {
         }
     }
 
+    private fun showPinSection(view: View) {
+        view.findViewById<View>(R.id.pinSection).visibility = View.VISIBLE
+        view.findViewById<View>(R.id.hostSection).visibility = View.GONE
+        view.findViewById<View>(R.id.etPin).requestFocus()
+    }
+
+    private fun showHostSection(view: View, firstTime: Boolean) {
+        val etHost = view.findViewById<EditText>(R.id.etPiHost)
+        val etNewPin = view.findViewById<EditText>(R.id.etNewPin)
+        etHost.setText(piSettings.host)
+        etHost.setSelection(etHost.text.length)
+        etNewPin.setHint(if (firstTime) R.string.settings_first_pin_hint else R.string.settings_new_pin_hint)
+        view.findViewById<View>(R.id.pinSection).visibility = View.GONE
+        view.findViewById<View>(R.id.hostSection).visibility = View.VISIBLE
+        etHost.requestFocus()
+    }
+
     private fun hideHostSettings() {
         val view = floatingView ?: return
-        val etHost = view.findViewById<EditText>(R.id.etPiHost)
+        val panel = view.findViewById<View>(R.id.settingsPanel)
         (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)
-            ?.hideSoftInputFromWindow(etHost.windowToken, 0)
-        etHost.clearFocus()
-        view.findViewById<View>(R.id.settingsPanel).visibility = View.GONE
+            ?.hideSoftInputFromWindow(panel.windowToken, 0)
+        listOf(R.id.etPin, R.id.etNewPin).forEach { id ->
+            view.findViewById<EditText>(id).apply { text.clear(); clearFocus() }
+        }
+        view.findViewById<EditText>(R.id.etPiHost).clearFocus()
+        view.findViewById<View>(R.id.hostSection).visibility = View.GONE
+        view.findViewById<View>(R.id.pinSection).visibility = View.VISIBLE
+        panel.visibility = View.GONE
         if (isCameraStreamActive) setStreamWindowFocusable(false)
     }
 

@@ -18,7 +18,7 @@
             android:layout_width="44dp"
             android:layout_height="44dp"
             android:background="@android:color/transparent"
-            android:contentDescription="Robot Icon"
+            android:contentDescription="@string/desc_robot_icon"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_robot_logo" />
 
@@ -37,7 +37,7 @@
                 android:layout_height="22dp"
                 android:layout_marginBottom="3dp"
                 android:background="@drawable/circle_button_bg"
-                android:contentDescription="Zoom Join"
+                android:contentDescription="@string/desc_zoom_join"
                 android:padding="3dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_zoom" />
@@ -53,7 +53,7 @@
                 android:minWidth="0dp"
                 android:minHeight="0dp"
                 android:padding="0dp"
-                android:text="📷"
+                android:text="@string/label_camera_button"
                 android:textColor="#000000"
                 android:textSize="10sp"
                 android:textStyle="bold" />
@@ -89,7 +89,7 @@
             android:shadowDx="2"
             android:shadowDy="2"
             android:shadowRadius="4"
-            android:text="0"
+            android:text="@string/finger_count_default"
             android:textColor="#FFFFFF"
             android:textSize="26sp"
             android:textStyle="bold" />
@@ -106,7 +106,7 @@
             android:minWidth="0dp"
             android:minHeight="0dp"
             android:padding="0dp"
-            android:text="✕"
+            android:text="@string/label_close_symbol"
             android:textColor="#FFFFFF"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -124,53 +124,122 @@
             android:padding="16dp"
             android:visibility="gone">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="IP ของ Raspberry Pi 5"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp"
-                android:textStyle="bold" />
-
-            <EditText
-                android:id="@+id/etPiHost"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:hint="เช่น 192.168.100.245"
-                android:imeOptions="actionDone"
-                android:importantForAutofill="no"
-                android:inputType="textUri"
-                android:maxLines="1"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#888888" />
-
+            <!-- ขั้นที่ 1: ถาม PIN (แสดงเมื่อเคยตั้ง PIN ไว้แล้ว) -->
             <LinearLayout
+                android:id="@+id/pinSection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:orientation="horizontal">
+                android:orientation="vertical">
 
-                <Button
-                    android:id="@+id/btnResetHost"
-                    android:layout_width="0dp"
+                <TextView
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="ค่าเริ่มต้น" />
+                    android:text="@string/settings_pin_title"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
 
-                <Button
-                    android:id="@+id/btnCancelHost"
-                    android:layout_width="0dp"
+                <EditText
+                    android:id="@+id/etPin"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="ยกเลิก" />
+                    android:layout_marginTop="8dp"
+                    android:hint="@string/settings_pin_hint"
+                    android:importantForAutofill="no"
+                    android:inputType="numberPassword"
+                    android:maxLength="8"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#888888" />
 
-                <Button
-                    android:id="@+id/btnSaveHost"
-                    android:layout_width="0dp"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="บันทึก" />
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btnPinCancel"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/settings_cancel" />
+
+                    <Button
+                        android:id="@+id/btnPinOk"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/settings_ok" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ขั้นที่ 2: ตั้งค่า IP (แสดงหลังใส่ PIN ถูก หรือครั้งแรกที่ยังไม่มี PIN) -->
+            <LinearLayout
+                android:id="@+id/hostSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_host_title"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <EditText
+                    android:id="@+id/etPiHost"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:hint="@string/settings_host_hint"
+                    android:importantForAutofill="no"
+                    android:inputType="textUri"
+                    android:maxLines="1"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#888888" />
+
+                <EditText
+                    android:id="@+id/etNewPin"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:hint="@string/settings_new_pin_hint"
+                    android:importantForAutofill="no"
+                    android:inputType="numberPassword"
+                    android:maxLength="8"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#888888" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btnResetHost"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/settings_reset" />
+
+                    <Button
+                        android:id="@+id/btnCancelHost"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/settings_cancel" />
+
+                    <Button
+                        android:id="@+id/btnSaveHost"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/settings_save" />
+                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
 

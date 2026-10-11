@@ -1,3 +1,22 @@
 <resources>
     <string name="app_name">SunroboticsAppcontrol</string>
+
+    <!-- ปุ่มลอย -->
+    <string name="desc_robot_icon">ไอคอนหุ่นยนต์</string>
+    <string name="desc_zoom_join">เข้า Zoom</string>
+    <string name="label_camera_button">📷</string>
+    <string name="label_close_symbol">✕</string>
+    <string name="finger_count_default">0</string>
+
+    <!-- แผงตั้งค่า IP ของ Pi (ซ่อนอยู่) -->
+    <string name="settings_pin_title">ใส่ PIN เจ้าของ</string>
+    <string name="settings_pin_hint">PIN</string>
+    <string name="settings_host_title">IP ของ Raspberry Pi 5</string>
+    <string name="settings_host_hint">เช่น 192.168.100.245</string>
+    <string name="settings_new_pin_hint">PIN ใหม่ 4-8 หลัก (เว้นว่าง = ไม่เปลี่ยน)</string>
+    <string name="settings_first_pin_hint">ตั้ง PIN เจ้าของ 4-8 หลัก (จำเป็น)</string>
+    <string name="settings_ok">ตกลง</string>
+    <string name="settings_save">บันทึก</string>
+    <string name="settings_cancel">ยกเลิก</string>
+    <string name="settings_reset">ค่าเริ่มต้น</string>
 </resources>
