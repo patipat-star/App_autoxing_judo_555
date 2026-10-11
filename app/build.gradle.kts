@@ -19,17 +19,11 @@ android {
 
         versionCode = 1
         versionName = "1.0"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
         }
     }
 
@@ -45,10 +39,6 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
 
-    // 📌 เพิ่ม OkHttp สำหรับเชื่อมต่อ WebSocket สื่อสารกับคอมพิวเตอร์ (YOLOv8)
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(libs.androidx.junit)
+    // HTTP + WebSocket สำหรับคุยกับ Raspberry Pi 5
+    implementation(libs.okhttp)
 }

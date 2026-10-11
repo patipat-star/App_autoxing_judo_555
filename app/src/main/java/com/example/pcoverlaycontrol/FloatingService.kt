@@ -3,6 +3,7 @@ package com.example.pcoverlaycontrol
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -25,10 +26,12 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -43,6 +46,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 class FloatingService : Service() {
@@ -55,25 +59,32 @@ class FloatingService : Service() {
         private const val WS_RECONNECT_DELAY_MS = 3000L
         private const val TAG = "FloatingService"
 
-        // 📌 IP Address และ Port ของ Raspberry Pi 5
-        private const val PI_HOST = "192.168.100.245"
-        private const val PI_HTTP_PORT = 5000
-        private const val PI_WS_PORT = 8765
-        private const val PI_BASE_URL = "http://$PI_HOST:$PI_HTTP_PORT"
+        private const val WS_PING_INTERVAL_SECONDS = 10L
+        private const val USAGE_EVENTS_WINDOW_MS = 5 * 60 * 1000L
 
         // flags ของหน้าต่างปุ่มลอย (ย่อ) และของโหมดสตรีมเต็มจอ
         private const val FLAGS_FLOATING = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-        private const val FLAGS_FULLSCREEN = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        private const val FLAGS_FULLSCREEN = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+        // ตอนกรอก IP ต้องรับโฟกัสให้คีย์บอร์ดขึ้น (ปกติไม่รับ เพื่อไม่แย่งคีย์จากแอปอื่น)
+        private const val FLAGS_FULLSCREEN_EDITING = FLAGS_FULLSCREEN and
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
     }
 
     private lateinit var windowManager: WindowManager
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val okHttpClient = OkHttpClient()
+    // ping ทุก 10 วินาที เพื่อให้รู้ตัวเมื่อ Pi หลุดเงียบๆ (ไม่ส่ง close frame)
+    private val okHttpClient = OkHttpClient.Builder()
+        .pingInterval(WS_PING_INTERVAL_SECONDS, TimeUnit.SECONDS)
+        .build()
     private var isDestroyed = false
+
+    // 📌 IP ของ Raspberry Pi 5 เจ้าของเปลี่ยนได้จากแผงตั้งค่าที่ซ่อนอยู่ในหน้าสตรีม
+    // (กดค้างที่ตัวเลขจำนวนนิ้วมือมุมซ้ายบน)
+    private val piSettings by lazy { PiSettings(this) }
 
     // 📌 หน้าต่างปุ่มลอย
     private var floatingView: View? = null
@@ -81,13 +92,14 @@ class FloatingService : Service() {
     private var savedX = 0
     private var savedY = 0
 
-    // 📌 สตรีมกล้อง (ปุ่ม 4)
+    // 📌 สตรีมกล้อง (ปุ่ม 2)
     private var streamWebView: WebView? = null
     private var tvFingerCount: TextView? = null
     private var webSocket: WebSocket? = null
     private var isCameraStreamActive = false
+    private var webSocketLost = false // WebSocket เคยหลุด: เมื่อต่อใหม่ได้ต้องโหลดภาพสตรีมใหม่
 
-    // 📌 Zoom (ปุ่ม 3)
+    // 📌 Zoom (ปุ่ม 1)
     private var zoomCloseOverlayView: View? = null
     private var isZoomMonitoring = false
     private var zoomNotFoundCount = 0
@@ -185,6 +197,7 @@ class FloatingService : Service() {
             return
         }
 
+        var addedView: View? = null
         try {
             val view = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null)
             val params = WindowManager.LayoutParams(
@@ -200,6 +213,7 @@ class FloatingService : Service() {
             }
 
             windowManager.addView(view, params)
+            addedView = view
             floatingView = view
             floatingParams = params
 
@@ -221,11 +235,13 @@ class FloatingService : Service() {
                 webViewClient = WebViewClient()
             }
 
-            view.findViewById<View>(R.id.btn3).setOnClickListener { openZoom() }
-            view.findViewById<View>(R.id.btn4).setOnClickListener { openCameraStream() }
+            view.findViewById<View>(R.id.btn1).setOnClickListener { openZoom() }
+            view.findViewById<View>(R.id.btn2).setOnClickListener { openCameraStream() }
             view.findViewById<View>(R.id.btnCloseStream).setOnClickListener { closeCameraStream() }
+            setupHostSettings(view)
         } catch (e: Exception) {
             Log.w(TAG, e)
+            addedView?.let { runCatching { windowManager.removeView(it) } }
             floatingView = null
             floatingParams = null
             showToast("สร้างปุ่มลอยล้มเหลว: ${e.message}")
@@ -276,7 +292,7 @@ class FloatingService : Service() {
     }
 
     // ===========================================================================
-    // 📌 [ปุ่มที่ 4] สตรีมภาพวิดีโอจาก Pi 5
+    // 📌 [ปุ่มที่ 2] สตรีมภาพวิดีโอจาก Pi 5
     // ===========================================================================
     private fun openCameraStream() {
         val view = floatingView ?: return
@@ -292,12 +308,20 @@ class FloatingService : Service() {
         params.width = WindowManager.LayoutParams.MATCH_PARENT
         params.height = WindowManager.LayoutParams.MATCH_PARENT
         params.flags = FLAGS_FULLSCREEN
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN // กันคีย์บอร์ดบังช่องกรอก IP
         windowManager.updateViewLayout(view, params)
 
         view.findViewById<View>(R.id.mainMenuContainer).visibility = View.GONE
         view.findViewById<View>(R.id.streamContainer).visibility = View.VISIBLE
         tvFingerCount?.text = "0"
 
+        startStream()
+        showToast("กำลังเปิดสตรีมภาพแบบเต็มจอ...")
+    }
+
+    // โหลดภาพสตรีม สั่ง Pi เปิดโหมดติดตามคน และเชื่อม WebSocket (ใช้ IP ปัจจุบันจากการตั้งค่า)
+    private fun startStream() {
+        val baseUrl = piSettings.baseUrl
         val streamHtml = """
             <!DOCTYPE html>
             <html>
@@ -309,14 +333,14 @@ class FloatingService : Service() {
                 </style>
             </head>
             <body>
-                <img src="$PI_BASE_URL/video_feed">
+                <img src="$baseUrl/video_feed">
             </body>
             </html>
         """.trimIndent()
 
         streamWebView?.apply {
             onResume()
-            loadDataWithBaseURL("$PI_BASE_URL/", streamHtml, "text/html", "UTF-8", null)
+            loadDataWithBaseURL("$baseUrl/", streamHtml, "text/html", "UTF-8", null)
         }
 
         postToPi(
@@ -325,12 +349,72 @@ class FloatingService : Service() {
             failMessage = "เชื่อมต่อ Pi 5 ไม่สำเร็จ"
         )
         connectWebSocket()
-        showToast("กำลังเปิดสตรีมภาพแบบเต็มจอ...")
+    }
+
+    // ===========================================================================
+    // 📌 แผงตั้งค่า IP ของ Pi 5 (ซ่อนอยู่ ไม่มีปุ่มให้เห็น)
+    // เปิดโดย "กดค้าง" ที่ตัวเลขจำนวนนิ้วมือมุมซ้ายบนในหน้าสตรีม
+    // ===========================================================================
+    private fun setupHostSettings(view: View) {
+        val etHost = view.findViewById<EditText>(R.id.etPiHost)
+
+        tvFingerCount?.setOnLongClickListener {
+            etHost.setText(piSettings.host)
+            etHost.setSelection(etHost.text.length)
+            setStreamWindowFocusable(true)
+            view.findViewById<View>(R.id.settingsPanel).visibility = View.VISIBLE
+            true
+        }
+
+        view.findViewById<View>(R.id.btnCancelHost).setOnClickListener { hideHostSettings() }
+        view.findViewById<View>(R.id.btnResetHost).setOnClickListener { etHost.setText(PiSettings.DEFAULT_HOST) }
+        view.findViewById<View>(R.id.btnSaveHost).setOnClickListener {
+            val host = etHost.text.toString().trim()
+            if (!PiSettings.isValidHost(host)) {
+                showToast("IP หรือชื่อโฮสต์ไม่ถูกต้อง")
+                return@setOnClickListener
+            }
+            val oldHost = piSettings.host
+            piSettings.host = host
+            hideHostSettings()
+            showToast("บันทึก IP: $host")
+            if (host != oldHost) restartStream(oldHost)
+        }
+    }
+
+    private fun hideHostSettings() {
+        val view = floatingView ?: return
+        val etHost = view.findViewById<EditText>(R.id.etPiHost)
+        (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)
+            ?.hideSoftInputFromWindow(etHost.windowToken, 0)
+        etHost.clearFocus()
+        view.findViewById<View>(R.id.settingsPanel).visibility = View.GONE
+        if (isCameraStreamActive) setStreamWindowFocusable(false)
+    }
+
+    private fun setStreamWindowFocusable(focusable: Boolean) {
+        val view = floatingView ?: return
+        val params = floatingParams ?: return
+        params.flags = if (focusable) FLAGS_FULLSCREEN_EDITING else FLAGS_FULLSCREEN
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            Log.w(TAG, e)
+        }
+    }
+
+    // เชื่อมต่อใหม่ด้วย IP ที่เพิ่งบันทึก และสั่ง Pi เครื่องเดิมให้ปิดกล้อง (กันค้างทำงานอยู่)
+    private fun restartStream(oldHost: String) {
+        if (!isCameraStreamActive) return
+        disconnectWebSocket()
+        postToPi("/api/stop_button4", baseUrl = PiSettings.baseUrlFor(oldHost))
+        startStream()
     }
 
     private fun closeCameraStream() {
         if (!isCameraStreamActive) return
         isCameraStreamActive = false
+        hideHostSettings()
 
         postToPi(
             "/api/stop_button4",
@@ -359,20 +443,27 @@ class FloatingService : Service() {
         view.findViewById<View>(R.id.mainMenuContainer).visibility = View.VISIBLE
     }
 
-    private fun postToPi(path: String, successMessage: String, failMessage: String) {
+    // ถ้าไม่ระบุข้อความ จะส่งแบบเงียบ (ไม่ขึ้น Toast)
+    private fun postToPi(
+        path: String,
+        successMessage: String? = null,
+        failMessage: String? = null,
+        baseUrl: String = piSettings.baseUrl
+    ) {
         val request = Request.Builder()
-            .url("$PI_BASE_URL$path")
+            .url("$baseUrl$path")
             .post(ByteArray(0).toRequestBody())
             .build()
 
         okHttpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                showToast("$failMessage: ${e.message}")
+                failMessage?.let { showToast("$it: ${e.message}") }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 response.use {
-                    showToast(if (it.isSuccessful) successMessage else "$failMessage (HTTP ${it.code})")
+                    val message = if (it.isSuccessful) successMessage else failMessage?.let { m -> "$m (HTTP ${it.code})" }
+                    message?.let(::showToast)
                 }
             }
         })
@@ -382,8 +473,18 @@ class FloatingService : Service() {
     private fun connectWebSocket() {
         if (isDestroyed || !isCameraStreamActive || webSocket != null) return
 
-        val request = Request.Builder().url("ws://$PI_HOST:$PI_WS_PORT").build()
+        val request = Request.Builder().url(piSettings.webSocketUrl).build()
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                mainHandler.post {
+                    // ภาพ MJPEG ค้างถาวรเมื่อเครือข่ายหลุด จึงต้องโหลดใหม่หลังต่อกลับมาได้
+                    if (webSocketLost && isCameraStreamActive && this@FloatingService.webSocket === webSocket) {
+                        webSocketLost = false
+                        startStream()
+                    }
+                }
+            }
+
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val count = try {
                     JSONObject(text).optInt("count", 0)
@@ -391,6 +492,11 @@ class FloatingService : Service() {
                     return
                 }
                 mainHandler.post { tvFingerCount?.text = count.toString() }
+            }
+
+            // Pi ปิดการเชื่อมต่อก่อน: ต้องตอบ close frame กลับ onClosed ถึงจะถูกเรียก
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                webSocket.close(1000, null)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -407,6 +513,7 @@ class FloatingService : Service() {
         mainHandler.post {
             if (webSocket !== closedSocket) return@post
             webSocket = null
+            webSocketLost = true
             mainHandler.postDelayed({ connectWebSocket() }, WS_RECONNECT_DELAY_MS)
         }
     }
@@ -414,10 +521,11 @@ class FloatingService : Service() {
     private fun disconnectWebSocket() {
         webSocket?.close(1000, "Stream closed")
         webSocket = null
+        webSocketLost = false
     }
 
     // ===========================================================================
-    // 📌 [ปุ่มที่ 3] Zoom
+    // 📌 [ปุ่มที่ 1] Zoom
     // ===========================================================================
     private fun openZoom() {
         try {
@@ -456,13 +564,27 @@ class FloatingService : Service() {
         mainHandler.removeCallbacks(zoomCheckRunnable)
     }
 
+    // แอปที่ถูกเปิดขึ้นหน้าจอล่าสุดจาก UsageEvents (แม่นกว่า queryUsageStats)
+    // คืน null ถ้าไม่มี event ในช่วง USAGE_EVENTS_WINDOW_MS
     private fun getForegroundPackageName(): String? {
         val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return null
         val now = System.currentTimeMillis()
-        return usageStatsManager
-            .queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 10_000L, now)
-            ?.maxByOrNull { it.lastTimeUsed }
-            ?.packageName
+        val events = usageStatsManager.queryEvents(now - USAGE_EVENTS_WINDOW_MS, now) ?: return null
+
+        @Suppress("DEPRECATION")
+        val resumedType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            UsageEvents.Event.ACTIVITY_RESUMED
+        } else {
+            UsageEvents.Event.MOVE_TO_FOREGROUND
+        }
+
+        val event = UsageEvents.Event()
+        var lastPackage: String? = null
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            if (event.eventType == resumedType) lastPackage = event.packageName
+        }
+        return lastPackage
     }
 
     // 📌 แสดงปุ่มกากบาทสีแดงบนหน้าจอ Zoom
@@ -571,6 +693,7 @@ class FloatingService : Service() {
         disconnectWebSocket()
         stopZoomMonitoring()
         removeCloseZoomButton()
+        okHttpClient.dispatcher.executorService.shutdown() // คำสั่งปิดกล้องที่ส่งค้างอยู่ยังทำงานจนจบ
 
         streamWebView?.apply {
             stopLoading()

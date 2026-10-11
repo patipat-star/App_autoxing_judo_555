@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content">
 
@@ -31,28 +30,25 @@
             android:gravity="center_horizontal"
             android:orientation="vertical">
 
-            <!-- ปุ่ม 3 (Zoom) -->
+            <!-- ปุ่ม 1 (Zoom) -->
             <ImageButton
-                android:id="@+id/btn3"
+                android:id="@+id/btn1"
                 android:layout_width="22dp"
                 android:layout_height="22dp"
                 android:layout_marginBottom="3dp"
                 android:background="@drawable/circle_button_bg"
-                app:backgroundTint="@null"
                 android:contentDescription="Zoom Join"
                 android:padding="3dp"
                 android:scaleType="fitCenter"
-                android:src="@drawable/ic_zoom"
-                app:tint="#000000" />
+                android:src="@drawable/ic_zoom" />
 
-            <!-- ปุ่ม 4 (กล้องสตรีมจาก Pi 5) -->
+            <!-- ปุ่ม 2 (กล้องสตรีมจาก Pi 5) -->
             <Button
-                android:id="@+id/btn4"
+                android:id="@+id/btn2"
                 android:layout_width="22dp"
                 android:layout_height="22dp"
                 android:layout_marginBottom="3dp"
                 android:background="@drawable/circle_button_bg"
-                app:backgroundTint="@null"
                 android:includeFontPadding="false"
                 android:minWidth="0dp"
                 android:minHeight="0dp"
@@ -66,7 +62,7 @@
 
     </LinearLayout>
 
-    <!-- กรอบแสดงผลสตรีมกล้องจาก Pi 5 (ปุ่ม 4) -->
+    <!-- กรอบแสดงผลสตรีมกล้องจาก Pi 5 (ปุ่ม 2) -->
     <FrameLayout
         android:id="@+id/streamContainer"
         android:layout_width="match_parent"
@@ -87,7 +83,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="top|start"
-            android:layout_margin="12dp"
+            android:padding="12dp"
             android:background="@null"
             android:shadowColor="#000000"
             android:shadowDx="2"
@@ -105,9 +101,7 @@
             android:layout_height="32dp"
             android:layout_gravity="top|end"
             android:layout_margin="12dp"
-            android:background="@drawable/circle_button_bg"
-            app:backgroundTint="#F44336"
-            android:elevation="100dp"
+            android:background="@drawable/circle_close_bg"
             android:includeFontPadding="false"
             android:minWidth="0dp"
             android:minHeight="0dp"
@@ -116,6 +110,69 @@
             android:textColor="#FFFFFF"
             android:textSize="14sp"
             android:textStyle="bold" />
+
+        <!-- แผงตั้งค่า IP ของ Pi 5 (ซ่อนอยู่ เปิดได้โดยกดค้างที่ตัวเลขจำนวนนิ้วมือ) -->
+        <LinearLayout
+            android:id="@+id/settingsPanel"
+            android:layout_width="320dp"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="#E6212121"
+            android:clickable="true"
+            android:focusable="true"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="IP ของ Raspberry Pi 5"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/etPiHost"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="เช่น 192.168.100.245"
+                android:imeOptions="actionDone"
+                android:importantForAutofill="no"
+                android:inputType="textUri"
+                android:maxLines="1"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#888888" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnResetHost"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="ค่าเริ่มต้น" />
+
+                <Button
+                    android:id="@+id/btnCancelHost"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="ยกเลิก" />
+
+                <Button
+                    android:id="@+id/btnSaveHost"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="บันทึก" />
+            </LinearLayout>
+        </LinearLayout>
 
     </FrameLayout>
 

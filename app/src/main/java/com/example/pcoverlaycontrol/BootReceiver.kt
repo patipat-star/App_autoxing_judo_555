@@ -27,15 +27,7 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
 
-        // MainActivity จะตรวจสิทธิ์ที่เหลือ แล้วเป็นตัวเปิด FloatingService เอง
-        try {
-            val activityIntent = Intent(context, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            context.startActivity(activityIntent)
-        } catch (e: Exception) {
-            Log.e(TAG, "ไม่สามารถเปิด MainActivity ได้: ${e.message}")
-        }
-
+        // FloatingService เช็กสิทธิ์ Overlay เองอีกครั้ง และทำงานได้แม้ยังไม่ได้ขอสิทธิ์เสริมอื่น
         try {
             ContextCompat.startForegroundService(context, Intent(context, FloatingService::class.java))
         } catch (e: Exception) {

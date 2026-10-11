@@ -41,6 +41,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode"
             android:exported="true"
             android:launchMode="singleTask"
             android:taskAffinity="">
@@ -53,7 +54,6 @@
         <!-- 📌 Foreground Service สำหรับปุ่มลอย -->
         <service
             android:name=".FloatingService"
-            android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="specialUse"
             tools:targetApi="34">
@@ -79,9 +79,8 @@
         <!-- 📌 Receiver สำหรับ Auto-start ตอนเปิดเครื่อง -->
         <receiver
             android:name=".BootReceiver"
-            android:enabled="true"
             android:exported="true">
-            <intent-filter android:priority="1000">
+            <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />

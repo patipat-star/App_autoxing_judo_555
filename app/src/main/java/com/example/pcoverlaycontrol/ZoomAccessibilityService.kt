@@ -22,6 +22,20 @@ class ZoomAccessibilityService : AccessibilityService() {
         private const val LEAVE_SEARCH_TIMEOUT_MS = 4000L
         private const val LEAVE_SEARCH_INTERVAL_MS = 200L
 
+        // รอให้ Pop-up ยืนยันขึ้นก่อน ค่อยหาปุ่มยืนยัน (กันกดซ้ำปุ่มเดิมบน toolbar)
+        private const val CONFIRM_DELAY_MS = 400L
+
+        // ข้อความภาษาอังกฤษต้องตรงเป็น "คำ" (กัน "End" ไปตรงกับ Calendar / Send / Attendees)
+        // ภาษาไทยไม่มีช่องว่างคั่นคำ จึงใช้ contains
+        private fun matchesTarget(value: String?, target: String): Boolean {
+            if (value.isNullOrBlank()) return false
+            return if (target.all { it.code < 128 }) {
+                Regex("""\b${Regex.escape(target)}\b""", RegexOption.IGNORE_CASE).containsMatchIn(value)
+            } else {
+                value.contains(target)
+            }
+        }
+
         @Volatile
         var isZoomInForeground: Boolean = false
             private set
@@ -46,6 +60,8 @@ class ZoomAccessibilityService : AccessibilityService() {
     // ใช้บน Main Thread เท่านั้น
     private var leaveAttemptActive = false
     private var leaveIconClicked = false
+    private var leaveIconClickedAt = 0L
+    private var leaveIconViewId: String? = null
     private var leaveAttemptStartTime = 0L
 
     private val leaveWatchdog = object : Runnable {
@@ -64,8 +80,15 @@ class ZoomAccessibilityService : AccessibilityService() {
             if (pkg == ZOOM_PACKAGE) {
                 // 1. กดปุ่ม Leave ก่อน  2. แล้วกดยืนยันใน Pop-up
                 if (!leaveIconClicked) {
-                    leaveIconClicked = findAndClick(root, LEAVE_ICON_TEXTS)
-                } else if (findAndClick(root, CONFIRM_TEXTS)) {
+                    val clicked = findAndClick(root, LEAVE_ICON_TEXTS)
+                    if (clicked != null) {
+                        leaveIconClicked = true
+                        leaveIconClickedAt = System.currentTimeMillis()
+                        leaveIconViewId = clicked.viewIdResourceName
+                    }
+                } else if (System.currentTimeMillis() - leaveIconClickedAt >= CONFIRM_DELAY_MS &&
+                    findAndClick(root, CONFIRM_TEXTS, excludeViewId = leaveIconViewId) != null
+                ) {
                     mainHandler.postDelayed({ finishLeaveProcess() }, 300L)
                     return
                 }
@@ -83,6 +106,7 @@ class ZoomAccessibilityService : AccessibilityService() {
         if (leaveAttemptActive) return
         leaveAttemptActive = true
         leaveIconClicked = false
+        leaveIconViewId = null
         leaveAttemptStartTime = System.currentTimeMillis()
         mainHandler.removeCallbacks(leaveWatchdog)
         mainHandler.post(leaveWatchdog)
@@ -109,7 +133,12 @@ class ZoomAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun findAndClick(node: AccessibilityNodeInfo, targets: List<String>): Boolean {
+    /** หา node ที่ข้อความตรงกับ [targets] แล้วกด คืน node ที่ถูกกด (null ถ้าไม่เจอ) */
+    private fun findAndClick(
+        node: AccessibilityNodeInfo,
+        targets: List<String>,
+        excludeViewId: String? = null
+    ): AccessibilityNodeInfo? {
         val stack = ArrayDeque<AccessibilityNodeInfo>()
         stack.addLast(node)
 
@@ -118,16 +147,16 @@ class ZoomAccessibilityService : AccessibilityService() {
             val text = current.text?.toString()
             val desc = current.contentDescription?.toString()
 
-            val isMatch = targets.any { t ->
-                (text?.contains(t, ignoreCase = true) == true) ||
-                        (desc?.contains(t, ignoreCase = true) == true)
+            val isMatch = current.isVisibleToUser && targets.any { t ->
+                matchesTarget(text, t) || matchesTarget(desc, t)
             }
 
             if (isMatch) {
                 val clickable = findClickableSelfOrParent(current)
-                if (clickable != null) {
+                val isExcluded = excludeViewId != null && clickable?.viewIdResourceName == excludeViewId
+                if (clickable != null && clickable.isEnabled && !isExcluded) {
                     clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    return true
+                    return clickable
                 }
             }
 
@@ -135,7 +164,7 @@ class ZoomAccessibilityService : AccessibilityService() {
                 current.getChild(i)?.let { stack.addLast(it) }
             }
         }
-        return false
+        return null
     }
 
     private fun findClickableSelfOrParent(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {

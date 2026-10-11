@@ -14,20 +14,36 @@ import android.os.Process
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
+    private companion object {
+        const val TAG = "MainActivity"
+    }
+
     private var isPermissionRequesting = false
 
+    // สิทธิ์เสริมจะถูกขอแค่ครั้งเดียวต่อการเปิดแอป ถ้าผู้ใช้ปฏิเสธก็ไม่วนขอซ้ำ
+    private var askedUsageStats = false
+    private var askedNotification = false
+    private var askedBattery = false
+
     // 📌 1. ตัวรับผลลัพธ์การขอสิทธิ์ Overlay (Display over other apps)
+    // เป็นสิทธิ์เดียวที่จำเป็นจริงๆ ถ้าไม่ให้ก็เปิดปุ่มลอยไม่ได้
     private val overlayPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
         isPermissionRequesting = false
-        checkNextPermission()
+        if (Settings.canDrawOverlays(this)) {
+            checkNextPermission()
+        } else {
+            Toast.makeText(this, "ต้องเปิดสิทธิ์ 'แสดงทับแอปอื่น' จึงจะใช้ปุ่มลอยได้", Toast.LENGTH_LONG).show()
+            finish()
+        }
     }
 
     // 📌 2. ตัวรับผลลัพธ์การขอสิทธิ์ Usage Access (เข้าถึงข้อมูลการใช้งานเพื่อตรวจจับ Zoom)
@@ -41,17 +57,10 @@ class MainActivity : AppCompatActivity() {
     // 📌 3. ตัวรับผลลัพธ์การขอสิทธิ์แจ้งเตือน
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted ->
+    ) {
+        // Foreground Service ทำงานได้แม้ไม่ได้สิทธิ์แจ้งเตือน (แค่ไม่เห็น notification)
         isPermissionRequesting = false
-        if (granted) {
-            checkNextPermission()
-        } else {
-            Toast.makeText(
-                this,
-                "กรุณายินยอมสิทธิ์แจ้งเตือนเพื่อเปิดใช้งานปุ่มลอย",
-                Toast.LENGTH_LONG
-            ).show()
-        }
+        checkNextPermission()
     }
 
     // 📌 4. ตัวรับผลลัพธ์การขอ "ยกเว้น" Battery Optimization
@@ -86,25 +95,26 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Step 2: เช็กสิทธิ์ Usage Stats
-        if (!hasUsageStatsPermission()) {
+        // Step 2-4: สิทธิ์เสริม ขอครั้งเดียวต่อการเปิดแอป
+        if (!askedUsageStats && !hasUsageStatsPermission()) {
+            askedUsageStats = true
             requestUsageStatsPermission()
             return
         }
 
-        // Step 3: เช็กสิทธิ์แจ้งเตือน
-        if (!hasNotificationPermission()) {
+        if (!askedNotification && !hasNotificationPermission()) {
+            askedNotification = true
             requestNotificationPermission()
             return
         }
 
-        // Step 4: เช็กสิทธิ์ยกเว้น Battery Optimization
-        if (!hasIgnoreBatteryOptimization()) {
+        if (!askedBattery && !hasIgnoreBatteryOptimization()) {
+            askedBattery = true
             requestIgnoreBatteryOptimization()
             return
         }
 
-        // สิทธิ์ครบทุกอย่างแล้ว ให้เปิด Service
+        // ผ่านขั้นตอนขอสิทธิ์แล้ว ให้เปิด Service
         startFloatingService()
     }
 
@@ -115,7 +125,15 @@ class MainActivity : AppCompatActivity() {
             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
             Uri.parse("package:$packageName")
         )
-        overlayPermissionLauncher.launch(intent)
+        try {
+            overlayPermissionLauncher.launch(intent)
+        } catch (e: Exception) {
+            // ROM บางรุ่น (เช่นของหุ่นยนต์) ไม่มีหน้าตั้งค่านี้: ไม่ให้แอปล้ม
+            Log.w(TAG, e)
+            isPermissionRequesting = false
+            Toast.makeText(this, "เปิดหน้าตั้งค่าสิทธิ์ 'แสดงทับแอปอื่น' ไม่ได้ กรุณาเปิดเองในตั้งค่าเครื่อง", Toast.LENGTH_LONG).show()
+            finish()
+        }
     }
 
     private fun requestUsageStatsPermission() {
@@ -123,11 +141,7 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "กรุณาค้นหาแอปแล้วเปิดสิทธิ์ 'การเข้าถึงข้อมูลการใช้งาน'", Toast.LENGTH_LONG).show()
         val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
             .setData(Uri.parse("package:$packageName"))
-        try {
-            usageStatsPermissionLauncher.launch(intent)
-        } catch (e: Exception) {
-            usageStatsPermissionLauncher.launch(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-        }
+        launchOptional(usageStatsPermissionLauncher, intent, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
     }
 
     @Suppress("DEPRECATION")
@@ -149,7 +163,31 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestNotificationPermission() {
         isPermissionRequesting = true
-        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        try {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } catch (e: Exception) {
+            Log.w(TAG, e)
+            isPermissionRequesting = false
+            checkNextPermission()
+        }
+    }
+
+    // สิทธิ์เสริม: ถ้าเปิดหน้าตั้งค่าไม่ได้ (ลอง intent สำรองแล้ว) ให้ข้ามไป ไม่ให้แอปล้ม
+    private fun launchOptional(
+        launcher: ActivityResultLauncher<Intent>,
+        primary: Intent,
+        fallback: Intent
+    ) {
+        for (intent in listOf(primary, fallback)) {
+            try {
+                launcher.launch(intent)
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, e)
+            }
+        }
+        isPermissionRequesting = false
+        checkNextPermission()
     }
 
     private fun hasIgnoreBatteryOptimization(): Boolean {
@@ -165,11 +203,7 @@ class MainActivity : AppCompatActivity() {
             Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
             Uri.parse("package:$packageName")
         )
-        try {
-            batteryOptimizationLauncher.launch(intent)
-        } catch (e: Exception) {
-            batteryOptimizationLauncher.launch(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-        }
+        launchOptional(batteryOptimizationLauncher, intent, Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
     }
 
     private fun startFloatingService() {
@@ -179,7 +213,7 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "เปิดใช้งานปุ่มลอยเรียบร้อย!", Toast.LENGTH_SHORT).show()
             finish()
         } catch (e: Exception) {
-            Log.e("MainActivity", "เริ่ม FloatingService ไม่สำเร็จ", e)
+            Log.e(TAG, "เริ่ม FloatingService ไม่สำเร็จ", e)
             Toast.makeText(this, "ไม่สามารถเริ่มบริการปุ่มลอยได้: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
         }
     }
